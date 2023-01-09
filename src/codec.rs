@@ -1,13 +1,13 @@
-use std::io::{Read, Write, Result};
+use std::io::Result;
 use std::os::fd::RawFd;
 use std::os::unix::net::UnixStream;
 use sendfd::{RecvWithFd, SendWithFd};
 
-pub trait ReadFd: Read {
+pub trait ReadFd {
     fn read_fd(&self, buf: &mut [u8], fd_buf: &mut [RawFd]) -> Result<(usize, usize)>;
 }
 
-pub trait WriteFd: Write {
+pub trait WriteFd {
     fn write_fd(&self, buf: &[u8], fd_buf: &[RawFd]) -> Result<usize>;
 }
 
