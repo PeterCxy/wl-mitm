@@ -2,8 +2,8 @@ mod codec;
 
 use codec::*;
 
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::fd::RawFd;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 
 fn main() {
@@ -13,8 +13,7 @@ fn main() {
         return;
     }
 
-    let xdg_rt = std::env::var("XDG_RUNTIME_DIR")
-        .expect("XDG_RUNTIME_DIR not set");
+    let xdg_rt = std::env::var("XDG_RUNTIME_DIR").expect("XDG_RUNTIME_DIR not set");
 
     let src = format!("{}/{}", xdg_rt, args[1]);
     let proxied = format!("{}/{}", xdg_rt, args[2]);
@@ -28,8 +27,7 @@ fn main() {
         std::fs::remove_file(&proxied).expect("Cannot unlink existing socket");
     }
 
-    let listener = UnixListener::bind(proxied)
-        .expect("Failed to bind to target socket");
+    let listener = UnixListener::bind(proxied).expect("Failed to bind to target socket");
 
     while let Ok(conn) = listener.accept() {
         println!("Accepted new client {:?}", conn.1);
