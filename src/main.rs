@@ -1,9 +1,10 @@
 mod codec;
 
-use std::os::fd::RawFd;
+use std::io;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 
+use codec::WlDecoder;
 use sendfd::{RecvWithFd, SendWithFd};
 
 fn main() {
@@ -37,27 +38,35 @@ fn main() {
         let downstream_conn = conn.0;
         let _downstream_conn = downstream_conn.try_clone().unwrap();
         std::thread::spawn(move || {
-            forward(upstream_conn, downstream_conn);
+            forward("server->client", upstream_conn, downstream_conn).ok();
         });
         std::thread::spawn(move || {
-            forward(_downstream_conn, _upstream_conn);
+            forward("client->server", _downstream_conn, _upstream_conn).ok();
         });
     }
 }
 
-fn forward(conn1: impl RecvWithFd, conn2: impl SendWithFd) {
-    let mut buf = [0u8; 512];
-    let mut fdbuf = [RawFd::default(); 512];
+fn forward(
+    direction: &'static str,
+    ingress: impl RecvWithFd,
+    egress: impl SendWithFd,
+) -> io::Result<()> {
+    let mut decoder = WlDecoder::new(ingress);
 
-    while let Ok((len_data, len_fd)) = conn1.recv_with_fd(&mut buf, &mut fdbuf) {
-        println!("Received data {} fd {}", len_data, len_fd);
-        if len_data == 0 && len_fd == 0 {
-            break;
-        }
-        if let Err(_) = conn2.send_with_fd(&buf[0..len_data], &fdbuf[0..len_fd]) {
-            break;
+    loop {
+        match decoder.try_read()? {
+            codec::DecoderOutcome::Decoded(wl_raw_msg) => {
+                println!(
+                    "{direction} obj_id: {}, opcode {}",
+                    wl_raw_msg.obj_id, wl_raw_msg.opcode
+                );
+                wl_raw_msg.write_into(&egress)?;
+            }
+            codec::DecoderOutcome::Incomplete => continue,
+            codec::DecoderOutcome::Eof => break,
         }
     }
 
     println!("Stream disconnected");
+    Ok(())
 }
