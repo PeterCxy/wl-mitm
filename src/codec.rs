@@ -92,14 +92,17 @@ impl<T: RecvWithFd> WlDecoder<T> {
     }
 
     pub fn try_read(&mut self) -> io::Result<DecoderOutcome> {
+        // If we can decode something from what have buffered before, don't even try to read more
+        if let Some(res) = WlRawMsg::try_decode(&mut self.buf, &mut self.fds) {
+            return Ok(DecoderOutcome::Decoded(res));
+        }
+
         let mut tmp_buf = [0u8; 128];
         let mut tmp_fds = [0i32; 128];
         let (len_buf, len_fds) = self.inner.recv_with_fd(&mut tmp_buf, &mut tmp_fds)?;
-        println!("{len_buf}");
 
         self.buf.extend_from_slice(&tmp_buf[0..len_buf]);
         self.fds.extend_from_slice(&tmp_fds[0..len_fds]);
-        println!("{:?}", self.buf);
 
         match WlRawMsg::try_decode(&mut self.buf, &mut self.fds) {
             Some(res) => Ok(DecoderOutcome::Decoded(res)),
