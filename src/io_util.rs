@@ -12,24 +12,50 @@ use tokio::net::unix::{ReadHalf, WriteHalf};
 
 use crate::codec::{DecoderOutcome, WlDecoder, WlRawMsg};
 
-pub struct WlMsgIo<'a> {
+pub struct WlMsgReader<'a> {
     ingress: WlDecoder<ReadHalf<'a>>,
+}
+
+impl<'a> WlMsgReader<'a> {
+    pub fn new(ingress: ReadHalf<'a>) -> Self {
+        let ingress = WlDecoder::new(ingress);
+
+        WlMsgReader {
+            ingress,
+        }
+    }
+
+    fn poll_io(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<DecoderOutcome>> {
+        while self.ingress.inner.as_ref().poll_read_ready(cx)?.is_ready() {
+            match self.ingress.try_read() {
+                Ok(outcome) => return Poll::Ready(Ok(outcome)),
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => continue,
+                Err(err) => return Poll::Ready(Err(err)),
+            }
+        }
+
+        Poll::Pending
+    }
+
+    pub async fn io_next(&mut self) -> io::Result<DecoderOutcome> {
+        poll_fn(|cx| self.poll_io(cx)).await
+    }
+}
+
+pub struct WlMsgWriter<'a> {
     egress: WriteHalf<'a>,
     egress_msg_buf: Vec<WlRawMsg>,
     egress_pending_bytes: BytesMut,
     egress_pending_fds: Option<Box<[OwnedFd]>>,
 }
 
-impl<'a> WlMsgIo<'a> {
-    pub fn new(ingress: ReadHalf<'a>, egress: WriteHalf<'a>) -> Self {
-        let ingress = WlDecoder::new(ingress);
-
-        WlMsgIo {
-            ingress,
+impl<'a> WlMsgWriter<'a> {
+    pub fn new(egress: WriteHalf<'a>) -> Self {
+        WlMsgWriter {
             egress,
             egress_msg_buf: Vec::new(),
             egress_pending_bytes: BytesMut::new(),
-            egress_pending_fds: None,
+            egress_pending_fds: None
         }
     }
 
@@ -71,26 +97,18 @@ impl<'a> WlMsgIo<'a> {
         Poll::Pending
     }
 
-    fn poll_io(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<DecoderOutcome>> {
-        // Perform writes if we have any queued
-        _ = self.poll_write(cx)?;
-
-        while self.ingress.inner.as_ref().poll_read_ready(cx)?.is_ready() {
-            match self.ingress.try_read() {
-                Ok(outcome) => return Poll::Ready(Ok(outcome)),
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => continue,
-                Err(err) => return Poll::Ready(Err(err)),
-            }
-        }
-
-        Poll::Pending
-    }
-
-    pub fn queue_msg_write(&mut self, msg: WlRawMsg) {
+    pub async fn queue_msg_write(&mut self, msg: WlRawMsg) -> io::Result<()> {
         self.egress_msg_buf.push(msg);
+
+        poll_fn(|cx| {
+            _ = self.poll_write(cx)?;
+            Poll::Ready(Ok(()))
+        }).await
     }
 
-    pub async fn io_next(&mut self) -> io::Result<DecoderOutcome> {
-        poll_fn(|cx| self.poll_io(cx)).await
+    pub async fn do_write(&mut self) -> io::Result<()> {
+        poll_fn(|cx| {
+            self.poll_write(cx)
+        }).await
     }
 }

@@ -3,7 +3,7 @@ mod io_util;
 
 use std::{io, path::Path};
 
-use io_util::WlMsgIo;
+use io_util::{WlMsgReader, WlMsgWriter};
 use tokio::net::{UnixListener, UnixStream};
 
 #[tokio::main]
@@ -42,16 +42,19 @@ pub async fn handle_conn(src_path: String, mut downstream_conn: UnixStream) -> i
     let (upstream_read, upstream_write) = upstream_conn.split();
     let (downstream_read, downstream_write) = downstream_conn.split();
 
-    let mut s2c = WlMsgIo::new(upstream_read, downstream_write);
-    let mut c2s = WlMsgIo::new(downstream_read, upstream_write);
+    let mut upstream_read = WlMsgReader::new(upstream_read);
+    let mut downstream_read = WlMsgReader::new(downstream_read);
+
+    let mut upstream_write = WlMsgWriter::new(upstream_write);
+    let mut downstream_write = WlMsgWriter::new(downstream_write);
 
     loop {
         tokio::select! {
-            s2c_msg = s2c.io_next() => {
+            s2c_msg = upstream_read.io_next() => {
                 match s2c_msg? {
                     codec::DecoderOutcome::Decoded(wl_raw_msg) => {
                         println!("s2c, obj_id = {}, opcode = {}", wl_raw_msg.obj_id, wl_raw_msg.opcode);
-                        s2c.queue_msg_write(wl_raw_msg);
+                        downstream_write.queue_msg_write(wl_raw_msg).await;
                     },
                     codec::DecoderOutcome::Incomplete => {
                         println!("s2c, incomplete message");
@@ -60,16 +63,18 @@ pub async fn handle_conn(src_path: String, mut downstream_conn: UnixStream) -> i
                     codec::DecoderOutcome::Eof => break Ok(()),
                 }
             },
-            c2s_msg = c2s.io_next() => {
+            c2s_msg = downstream_read.io_next() => {
                 match c2s_msg? {
                     codec::DecoderOutcome::Decoded(wl_raw_msg) => {
                         println!("c2s, obj_id = {}, opcode = {}", wl_raw_msg.obj_id, wl_raw_msg.opcode);
-                        c2s.queue_msg_write(wl_raw_msg);
+                        upstream_write.queue_msg_write(wl_raw_msg).await;
                     },
                     codec::DecoderOutcome::Incomplete => continue,
                     codec::DecoderOutcome::Eof => break Ok(()),
                 }
             }
+            write_res = upstream_write.do_write() => { write_res?; },
+            write_res = downstream_write.do_write() => { write_res?; }
         }
     }
 }
