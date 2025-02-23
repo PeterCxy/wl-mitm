@@ -50,11 +50,11 @@ pub async fn handle_conn(src_path: String, mut downstream_conn: UnixStream) -> i
 
     loop {
         tokio::select! {
-            s2c_msg = upstream_read.io_next() => {
+            s2c_msg = upstream_read.read() => {
                 match s2c_msg? {
                     codec::DecoderOutcome::Decoded(wl_raw_msg) => {
                         println!("s2c, obj_id = {}, opcode = {}", wl_raw_msg.obj_id, wl_raw_msg.opcode);
-                        downstream_write.queue_msg_write(wl_raw_msg).await;
+                        downstream_write.write(wl_raw_msg).await?;
                     },
                     codec::DecoderOutcome::Incomplete => {
                         println!("s2c, incomplete message");
@@ -63,18 +63,16 @@ pub async fn handle_conn(src_path: String, mut downstream_conn: UnixStream) -> i
                     codec::DecoderOutcome::Eof => break Ok(()),
                 }
             },
-            c2s_msg = downstream_read.io_next() => {
+            c2s_msg = downstream_read.read() => {
                 match c2s_msg? {
                     codec::DecoderOutcome::Decoded(wl_raw_msg) => {
                         println!("c2s, obj_id = {}, opcode = {}", wl_raw_msg.obj_id, wl_raw_msg.opcode);
-                        upstream_write.queue_msg_write(wl_raw_msg).await;
+                        upstream_write.write(wl_raw_msg).await?;
                     },
                     codec::DecoderOutcome::Incomplete => continue,
                     codec::DecoderOutcome::Eof => break Ok(()),
                 }
             }
-            write_res = upstream_write.do_write() => { write_res?; },
-            write_res = downstream_write.do_write() => { write_res?; }
         }
     }
 }

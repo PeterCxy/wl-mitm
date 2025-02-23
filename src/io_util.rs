@@ -1,114 +1,88 @@
 use std::{
-    future::poll_fn,
     io,
     ops::Deref,
-    os::fd::OwnedFd,
-    task::{Context, Poll},
+    os::fd::{FromRawFd, OwnedFd},
 };
 
-use bytes::BytesMut;
-use sendfd::SendWithFd;
+use sendfd::{RecvWithFd, SendWithFd};
 use tokio::net::unix::{ReadHalf, WriteHalf};
 
 use crate::codec::{DecoderOutcome, WlDecoder, WlRawMsg};
 
 pub struct WlMsgReader<'a> {
-    ingress: WlDecoder<ReadHalf<'a>>,
+    ingress: ReadHalf<'a>,
+    decoder: WlDecoder,
 }
 
 impl<'a> WlMsgReader<'a> {
     pub fn new(ingress: ReadHalf<'a>) -> Self {
-        let ingress = WlDecoder::new(ingress);
-
         WlMsgReader {
             ingress,
+            decoder: WlDecoder::new(),
         }
     }
 
-    fn poll_io(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<DecoderOutcome>> {
-        while self.ingress.inner.as_ref().poll_read_ready(cx)?.is_ready() {
-            match self.ingress.try_read() {
-                Ok(outcome) => return Poll::Ready(Ok(outcome)),
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => continue,
-                Err(err) => return Poll::Ready(Err(err)),
+    pub async fn read(&mut self) -> io::Result<DecoderOutcome> {
+        if let Some(DecoderOutcome::Decoded(msg)) = self.decoder.decode_buf() {
+            return Ok(DecoderOutcome::Decoded(msg));
+        }
+
+        loop {
+            self.ingress.readable().await?;
+
+            let mut tmp_buf = [0u8; 128];
+            let mut tmp_fds = [0i32; 128];
+
+            let (read_bytes, read_fds) = match self.ingress.recv_with_fd(&mut tmp_buf, &mut tmp_fds)
+            {
+                Ok(res) => res,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                Err(e) => return Err(e),
+            };
+
+            let mut fd_vec: Vec<OwnedFd> = Vec::with_capacity(read_fds);
+            for fd in &tmp_fds[0..read_fds] {
+                fd_vec.push(unsafe { OwnedFd::from_raw_fd(*fd) });
             }
+
+            return Ok(self
+                .decoder
+                .decode_after_read(&tmp_buf[0..read_bytes], &mut fd_vec));
         }
-
-        Poll::Pending
-    }
-
-    pub async fn io_next(&mut self) -> io::Result<DecoderOutcome> {
-        poll_fn(|cx| self.poll_io(cx)).await
     }
 }
 
 pub struct WlMsgWriter<'a> {
     egress: WriteHalf<'a>,
-    egress_msg_buf: Vec<WlRawMsg>,
-    egress_pending_bytes: BytesMut,
-    egress_pending_fds: Option<Box<[OwnedFd]>>,
 }
 
 impl<'a> WlMsgWriter<'a> {
     pub fn new(egress: WriteHalf<'a>) -> Self {
-        WlMsgWriter {
-            egress,
-            egress_msg_buf: Vec::new(),
-            egress_pending_bytes: BytesMut::new(),
-            egress_pending_fds: None
-        }
+        WlMsgWriter { egress }
     }
 
-    fn poll_write(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        if self.egress_pending_bytes.is_empty() {
-            if let Some(msg) = self.egress_msg_buf.pop() {
-                let (bytes, fds) = msg.into_parts();
-                self.egress_pending_bytes = bytes;
-                self.egress_pending_fds = Some(fds);
+    pub async fn write(&mut self, msg: WlRawMsg) -> io::Result<()> {
+        let (buf, fds) = msg.into_parts();
+
+        let mut written = 0;
+
+        while written < buf.len() {
+            self.egress.writable().await?;
+
+            let res = if written == 0 {
+                self.egress
+                    .send_with_fd(&buf, unsafe { std::mem::transmute(fds.deref()) })
+            } else {
+                self.egress.send_with_fd(&buf[written..], &[])
+            };
+
+            match res {
+                Ok(new_written) => written += new_written,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                Err(e) => return Err(e),
             }
         }
 
-        if !self.egress_pending_bytes.is_empty() {
-            while self.egress.as_ref().poll_write_ready(cx)?.is_ready() {
-                let send_res = if let Some(fds) = self.egress_pending_fds.as_ref() {
-                    self.egress
-                        .send_with_fd(&self.egress_pending_bytes, unsafe {
-                            std::mem::transmute(fds.deref())
-                        })
-                } else {
-                    self.egress.send_with_fd(&self.egress_pending_bytes, &[])
-                };
-
-                match send_res {
-                    Ok(written) => {
-                        self.egress_pending_fds = None;
-                        _ = self.egress_pending_bytes.split_to(written);
-
-                        if self.egress_pending_bytes.is_empty() {
-                            return Poll::Ready(Ok(()));
-                        }
-                    }
-                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => continue,
-                    Err(err) => return Poll::Ready(Err(err)),
-                }
-            }
-        }
-
-        Poll::Pending
-    }
-
-    pub async fn queue_msg_write(&mut self, msg: WlRawMsg) -> io::Result<()> {
-        self.egress_msg_buf.push(msg);
-
-        poll_fn(|cx| {
-            _ = self.poll_write(cx)?;
-            Poll::Ready(Ok(()))
-        }).await
-    }
-
-    pub async fn do_write(&mut self) -> io::Result<()> {
-        poll_fn(|cx| {
-            self.poll_write(cx)
-        }).await
+        Ok(())
     }
 }

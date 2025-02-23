@@ -1,11 +1,7 @@
-use std::{
-    io,
-    os::fd::{FromRawFd, OwnedFd},
-};
+use std::os::fd::OwnedFd;
 
 use byteorder::{ByteOrder, NativeEndian};
-use bytes::BytesMut;
-use sendfd::RecvWithFd;
+use bytes::{Bytes, BytesMut};
 
 pub struct WlRawMsg {
     // 4 bytes
@@ -15,7 +11,7 @@ pub struct WlRawMsg {
     // 2 bytes
     pub opcode: u16,
     // len bytes -- containing the header
-    msg_buf: BytesMut,
+    msg_buf: Bytes,
     pub fds: Box<[OwnedFd]>,
 }
 
@@ -45,7 +41,7 @@ impl WlRawMsg {
             obj_id,
             len: msg_len as u16,
             opcode: opcode as u16,
-            msg_buf,
+            msg_buf: msg_buf.freeze(),
             fds: new_fds.into_boxed_slice(),
         })
     }
@@ -54,7 +50,7 @@ impl WlRawMsg {
         &self.msg_buf[8..]
     }
 
-    pub fn into_parts(self) -> (BytesMut, Box<[OwnedFd]>) {
+    pub fn into_parts(self) -> (Bytes, Box<[OwnedFd]>) {
         (self.msg_buf, self.fds)
     }
 }
@@ -65,51 +61,41 @@ pub enum DecoderOutcome {
     Eof,
 }
 
-pub struct WlDecoder<T: RecvWithFd> {
-    pub inner: T,
+pub struct WlDecoder {
     buf: BytesMut,
     fds: Vec<OwnedFd>,
 }
 
-impl<T: RecvWithFd> WlDecoder<T> {
-    pub fn new(inner: T) -> WlDecoder<T> {
+impl WlDecoder {
+    pub fn new() -> WlDecoder {
         WlDecoder {
-            inner,
             buf: BytesMut::new(),
             fds: Vec::new(),
         }
     }
 
-    pub fn try_read(&mut self) -> io::Result<DecoderOutcome> {
-        // If we can decode something from what have buffered before, don't even try to read more
-        if let Some(res) = WlRawMsg::try_decode(&mut self.buf, &mut self.fds) {
-            return Ok(DecoderOutcome::Decoded(res));
-        }
-
-        let mut tmp_buf = [0u8; 128];
-        let mut tmp_fds = [0i32; 128];
-        let (len_buf, len_fds) = self.inner.recv_with_fd(&mut tmp_buf, &mut tmp_fds)?;
-
-        self.buf.extend_from_slice(&tmp_buf[0..len_buf]);
-
-        for fd in &tmp_fds[0..len_fds] {
-            self.fds.push(unsafe { OwnedFd::from_raw_fd(*fd) });
+    pub fn decode_buf(&mut self) -> Option<DecoderOutcome> {
+        if self.buf.len() == 0 {
+            return None;
         }
 
         match WlRawMsg::try_decode(&mut self.buf, &mut self.fds) {
-            Some(res) => Ok(DecoderOutcome::Decoded(res)),
+            Some(res) => Some(DecoderOutcome::Decoded(res)),
+            None => Some(DecoderOutcome::Incomplete),
+        }
+    }
+
+    pub fn decode_after_read(&mut self, buf: &[u8], fds: &mut Vec<OwnedFd>) -> DecoderOutcome {
+        self.buf.extend_from_slice(&buf);
+        self.fds.append(fds);
+
+        match WlRawMsg::try_decode(&mut self.buf, &mut self.fds) {
+            Some(res) => DecoderOutcome::Decoded(res),
             None => {
-                if len_buf == 0 {
-                    if self.buf.len() > 0 {
-                        Err(io::Error::new(
-                            io::ErrorKind::UnexpectedEof,
-                            "unexpected EOF",
-                        ))
-                    } else {
-                        Ok(DecoderOutcome::Eof)
-                    }
+                if buf.len() == 0 {
+                    DecoderOutcome::Eof
                 } else {
-                    Ok(DecoderOutcome::Incomplete)
+                    DecoderOutcome::Incomplete
                 }
             }
         }
