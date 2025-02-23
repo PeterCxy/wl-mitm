@@ -1,13 +1,13 @@
 mod codec;
+mod io_util;
 
-use std::io;
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::Path;
+use std::{io, path::Path};
 
-use codec::WlDecoder;
-use sendfd::{RecvWithFd, SendWithFd};
+use io_util::WlMsgIo;
+use tokio::net::{UnixListener, UnixStream};
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let args: Vec<_> = std::env::args().collect();
     if args.len() < 3 {
         println!("Usage: {} <wl_display> <wl_display_proxied>", args[0]);
@@ -30,43 +30,46 @@ fn main() {
 
     let listener = UnixListener::bind(proxied).expect("Failed to bind to target socket");
 
-    while let Ok(conn) = listener.accept() {
-        println!("Accepted new client {:?}", conn.1);
-        let upstream_conn = UnixStream::connect(src.clone())
-            .expect("Failed to connect to upstream Wayland display");
-        let _upstream_conn = upstream_conn.try_clone().unwrap();
-        let downstream_conn = conn.0;
-        let _downstream_conn = downstream_conn.try_clone().unwrap();
-        std::thread::spawn(move || {
-            forward("server->client", upstream_conn, downstream_conn).ok();
-        });
-        std::thread::spawn(move || {
-            forward("client->server", _downstream_conn, _upstream_conn).ok();
-        });
+    while let Ok((conn, addr)) = listener.accept().await {
+        println!("Accepted new client {:?}", addr);
+        tokio::spawn(handle_conn(src.clone(), conn));
     }
 }
 
-fn forward(
-    direction: &'static str,
-    ingress: impl RecvWithFd,
-    egress: impl SendWithFd,
-) -> io::Result<()> {
-    let mut decoder = WlDecoder::new(ingress);
+pub async fn handle_conn(src_path: String, mut downstream_conn: UnixStream) -> io::Result<()> {
+    let mut upstream_conn = UnixStream::connect(src_path).await?;
+
+    let (upstream_read, upstream_write) = upstream_conn.split();
+    let (downstream_read, downstream_write) = downstream_conn.split();
+
+    let mut s2c = WlMsgIo::new(upstream_read, downstream_write);
+    let mut c2s = WlMsgIo::new(downstream_read, upstream_write);
 
     loop {
-        match decoder.try_read()? {
-            codec::DecoderOutcome::Decoded(wl_raw_msg) => {
-                println!(
-                    "{direction} obj_id: {}, opcode {}",
-                    wl_raw_msg.obj_id, wl_raw_msg.opcode
-                );
-                wl_raw_msg.write_into(&egress)?;
+        tokio::select! {
+            s2c_msg = s2c.io_next() => {
+                match s2c_msg? {
+                    codec::DecoderOutcome::Decoded(wl_raw_msg) => {
+                        println!("s2c, obj_id = {}, opcode = {}", wl_raw_msg.obj_id, wl_raw_msg.opcode);
+                        s2c.queue_msg_write(wl_raw_msg);
+                    },
+                    codec::DecoderOutcome::Incomplete => {
+                        println!("s2c, incomplete message");
+                        continue
+                    },
+                    codec::DecoderOutcome::Eof => break Ok(()),
+                }
+            },
+            c2s_msg = c2s.io_next() => {
+                match c2s_msg? {
+                    codec::DecoderOutcome::Decoded(wl_raw_msg) => {
+                        println!("c2s, obj_id = {}, opcode = {}", wl_raw_msg.obj_id, wl_raw_msg.opcode);
+                        c2s.queue_msg_write(wl_raw_msg);
+                    },
+                    codec::DecoderOutcome::Incomplete => continue,
+                    codec::DecoderOutcome::Eof => break Ok(()),
+                }
             }
-            codec::DecoderOutcome::Incomplete => continue,
-            codec::DecoderOutcome::Eof => break,
         }
     }
-
-    println!("Stream disconnected");
-    Ok(())
 }

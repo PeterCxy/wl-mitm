@@ -1,8 +1,11 @@
-use std::{io, os::fd::RawFd};
+use std::{
+    io,
+    os::fd::{FromRawFd, OwnedFd},
+};
 
 use byteorder::{ByteOrder, NativeEndian};
-use bytes::{Bytes, BytesMut};
-use sendfd::{RecvWithFd, SendWithFd};
+use bytes::BytesMut;
+use sendfd::RecvWithFd;
 
 pub struct WlRawMsg {
     // 4 bytes
@@ -12,12 +15,12 @@ pub struct WlRawMsg {
     // 2 bytes
     pub opcode: u16,
     // len bytes -- containing the header
-    msg_buf: Bytes,
-    pub fds: Box<[RawFd]>,
+    msg_buf: BytesMut,
+    pub fds: Box<[OwnedFd]>,
 }
 
 impl WlRawMsg {
-    pub fn try_decode(buf: &mut BytesMut, fds: &mut Vec<RawFd>) -> Option<WlRawMsg> {
+    pub fn try_decode(buf: &mut BytesMut, fds: &mut Vec<OwnedFd>) -> Option<WlRawMsg> {
         let buf_len = buf.len();
         // Not even a complete message header
         if buf_len < 8 {
@@ -42,7 +45,7 @@ impl WlRawMsg {
             obj_id,
             len: msg_len as u16,
             opcode: opcode as u16,
-            msg_buf: msg_buf.freeze(),
+            msg_buf,
             fds: new_fds.into_boxed_slice(),
         })
     }
@@ -51,22 +54,8 @@ impl WlRawMsg {
         &self.msg_buf[8..]
     }
 
-    pub fn write_into(self, stream: &impl SendWithFd) -> io::Result<()> {
-        let mut sent = 0usize;
-        sent += stream.send_with_fd(&self.msg_buf[sent..], &self.fds)?;
-        while sent < self.len as usize {
-            sent += stream.send_with_fd(&self.msg_buf[sent..], &[])?;
-        }
-
-        Ok(())
-    }
-}
-
-impl Drop for WlRawMsg {
-    fn drop(&mut self) {
-        for fd in self.fds.iter() {
-            nix::unistd::close(*fd).ok();
-        }
+    pub fn into_parts(self) -> (BytesMut, Box<[OwnedFd]>) {
+        (self.msg_buf, self.fds)
     }
 }
 
@@ -77,9 +66,9 @@ pub enum DecoderOutcome {
 }
 
 pub struct WlDecoder<T: RecvWithFd> {
-    inner: T,
+    pub inner: T,
     buf: BytesMut,
-    fds: Vec<RawFd>,
+    fds: Vec<OwnedFd>,
 }
 
 impl<T: RecvWithFd> WlDecoder<T> {
@@ -102,7 +91,10 @@ impl<T: RecvWithFd> WlDecoder<T> {
         let (len_buf, len_fds) = self.inner.recv_with_fd(&mut tmp_buf, &mut tmp_fds)?;
 
         self.buf.extend_from_slice(&tmp_buf[0..len_buf]);
-        self.fds.extend_from_slice(&tmp_fds[0..len_fds]);
+
+        for fd in &tmp_fds[0..len_fds] {
+            self.fds.push(unsafe { OwnedFd::from_raw_fd(*fd) });
+        }
 
         match WlRawMsg::try_decode(&mut self.buf, &mut self.fds) {
             Some(res) => Ok(DecoderOutcome::Decoded(res)),
