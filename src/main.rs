@@ -1,10 +1,10 @@
 mod codec;
 
-use codec::*;
-
 use std::os::fd::RawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
+
+use sendfd::{RecvWithFd, SendWithFd};
 
 fn main() {
     let args: Vec<_> = std::env::args().collect();
@@ -45,16 +45,16 @@ fn main() {
     }
 }
 
-fn forward(conn1: impl ReadFd, conn2: impl WriteFd) {
+fn forward(conn1: impl RecvWithFd, conn2: impl SendWithFd) {
     let mut buf = [0u8; 512];
     let mut fdbuf = [RawFd::default(); 512];
 
-    while let Ok((len_data, len_fd)) = conn1.read_fd(&mut buf, &mut fdbuf) {
+    while let Ok((len_data, len_fd)) = conn1.recv_with_fd(&mut buf, &mut fdbuf) {
         println!("Received data {} fd {}", len_data, len_fd);
         if len_data == 0 && len_fd == 0 {
             break;
         }
-        if let Err(_) = conn2.write_fd(&buf[0..len_data], &fdbuf[0..len_fd]) {
+        if let Err(_) = conn2.send_with_fd(&buf[0..len_data], &fdbuf[0..len_fd]) {
             break;
         }
     }
