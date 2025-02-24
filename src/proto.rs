@@ -4,7 +4,10 @@
 
 use byteorder::{ByteOrder, NativeEndian};
 
-use crate::codec::WlRawMsg;
+use crate::{
+    codec::WlRawMsg,
+    objects::{WlObjectType, WlObjects},
+};
 
 pub enum WaylandProtocolParsingOutcome<T> {
     Ok(T),
@@ -23,8 +26,11 @@ pub struct WlDisplayGetRegistry {
 }
 
 impl WlDisplayGetRegistry {
-    pub fn try_from_msg(msg: &WlRawMsg) -> WaylandProtocolParsingOutcome<WlDisplayGetRegistry> {
-        if msg.obj_id != WL_DISPLAY_OBJECT_ID {
+    pub fn try_from_msg(
+        objects: &WlObjects,
+        msg: &WlRawMsg,
+    ) -> WaylandProtocolParsingOutcome<WlDisplayGetRegistry> {
+        if objects.lookup_object(msg.obj_id) != Some(WlObjectType::WlDisplay) {
             return WaylandProtocolParsingOutcome::IncorrectObject;
         }
 
@@ -57,12 +63,12 @@ pub struct WlRegistryGlobalEvent<'a> {
     pub version: u32,
 }
 
-impl WlRegistryGlobalEvent<'_> {
-    pub fn try_from_msg(
-        registry_obj_id: u32,
-        msg: &WlRawMsg,
-    ) -> WaylandProtocolParsingOutcome<WlRegistryGlobalEvent<'_>> {
-        if msg.obj_id != registry_obj_id {
+impl<'a> WlRegistryGlobalEvent<'a> {
+    pub fn try_from_msg<'obj>(
+        objects: &'obj WlObjects,
+        msg: &'a WlRawMsg,
+    ) -> WaylandProtocolParsingOutcome<WlRegistryGlobalEvent<'a>> {
+        if objects.lookup_object(msg.obj_id) != Some(WlObjectType::WlRegistry) {
             return WaylandProtocolParsingOutcome::IncorrectObject;
         }
 

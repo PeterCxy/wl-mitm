@@ -1,5 +1,6 @@
 mod codec;
 mod io_util;
+mod objects;
 mod proto;
 mod state;
 
