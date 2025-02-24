@@ -43,9 +43,12 @@ impl WlMitmState {
             reject_malformed!(WlRegistryGlobalEvent::try_from_msg(&self.objects, msg))
         {
             println!(
-                "got global: {}, version {}",
-                global_msg.interface, global_msg.version
+                "got global: {}, name {}, version {}",
+                global_msg.interface, global_msg.name, global_msg.version
             );
+
+            self.objects
+                .record_global(global_msg.name, global_msg.interface);
         }
 
         true
