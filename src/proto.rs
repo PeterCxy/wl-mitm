@@ -21,6 +21,16 @@ macro_rules! reject_malformed {
     };
 }
 
+macro_rules! decode_and_match_msg {
+    ($objects:expr, match $msg:ident {$($t:ty => $act:block$(,)?)+}) => {
+        $(
+            if let Some($msg) = reject_malformed!(<$t>::try_from_msg(&$objects, $msg)) {
+                $act
+            }
+        )+
+    };
+}
+
 pub enum WaylandProtocolParsingOutcome<T> {
     Ok(T),
     MalformedMessage,
