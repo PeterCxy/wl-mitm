@@ -16,6 +16,18 @@ pub enum WaylandProtocolParsingOutcome<T> {
     IncorrectOpcode,
 }
 
+macro_rules! require_obj_type_and_opcode {
+    ($objects:expr, $msg:expr, $t:expr, $opcode:expr) => {
+        if $objects.lookup_object($msg.obj_id) != Some($t) {
+            return WaylandProtocolParsingOutcome::IncorrectObject;
+        }
+
+        if $msg.opcode != $opcode {
+            return WaylandProtocolParsingOutcome::IncorrectOpcode;
+        }
+    };
+}
+
 /// The default object ID of wl_display
 pub const WL_DISPLAY_OBJECT_ID: u32 = 1;
 /// Opcode for binding the wl_registry object
@@ -30,13 +42,12 @@ impl WlDisplayGetRegistry {
         objects: &WlObjects,
         msg: &WlRawMsg,
     ) -> WaylandProtocolParsingOutcome<WlDisplayGetRegistry> {
-        if objects.lookup_object(msg.obj_id) != Some(WlObjectType::WlDisplay) {
-            return WaylandProtocolParsingOutcome::IncorrectObject;
-        }
-
-        if msg.opcode != WL_DISPLAY_GET_REGISTRY_OPCODE {
-            return WaylandProtocolParsingOutcome::IncorrectOpcode;
-        }
+        require_obj_type_and_opcode!(
+            objects,
+            msg,
+            WlObjectType::WlDisplay,
+            WL_DISPLAY_GET_REGISTRY_OPCODE
+        );
 
         let payload = msg.payload();
 
@@ -68,13 +79,12 @@ impl<'a> WlRegistryGlobalEvent<'a> {
         objects: &'obj WlObjects,
         msg: &'a WlRawMsg,
     ) -> WaylandProtocolParsingOutcome<WlRegistryGlobalEvent<'a>> {
-        if objects.lookup_object(msg.obj_id) != Some(WlObjectType::WlRegistry) {
-            return WaylandProtocolParsingOutcome::IncorrectObject;
-        }
-
-        if msg.opcode != WL_REGISTRY_GLOBAL_OPCODE {
-            return WaylandProtocolParsingOutcome::IncorrectOpcode;
-        }
+        require_obj_type_and_opcode!(
+            objects,
+            msg,
+            WlObjectType::WlRegistry,
+            WL_REGISTRY_GLOBAL_OPCODE
+        );
 
         let payload = msg.payload();
 
@@ -99,5 +109,34 @@ impl<'a> WlRegistryGlobalEvent<'a> {
             interface,
             version,
         })
+    }
+}
+
+pub struct WlRegistryBind {
+    pub name: u32,
+    pub new_id: u32,
+}
+
+impl WlRegistryBind {
+    pub fn try_from_msg(
+        objects: &WlObjects,
+        msg: &WlRawMsg,
+    ) -> WaylandProtocolParsingOutcome<WlRegistryBind> {
+        require_obj_type_and_opcode!(
+            objects,
+            msg,
+            WlObjectType::WlRegistry,
+            WL_REGISTRY_BIND_OPCODE
+        );
+
+        let payload = msg.payload();
+
+        if payload.len() < 8 {
+            return WaylandProtocolParsingOutcome::MalformedMessage;
+        }
+
+        let name = NativeEndian::read_u32(&payload[..4]);
+        let new_id = NativeEndian::read_u32(&payload[4..8]);
+        WaylandProtocolParsingOutcome::Ok(WlRegistryBind { name, new_id })
     }
 }
