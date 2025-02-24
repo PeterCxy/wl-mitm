@@ -1,6 +1,7 @@
 mod codec;
 mod io_util;
 mod objects;
+#[macro_use]
 mod proto;
 mod state;
 

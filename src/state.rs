@@ -1,22 +1,8 @@
 use crate::{
     codec::WlRawMsg,
     objects::{WlObjectType, WlObjects},
-    proto::{
-        WaylandProtocolParsingOutcome, WlDisplayGetRegistry, WlRegistryBind, WlRegistryGlobalEvent,
-    },
+    proto::{WlDisplayGetRegistry, WlRegistryBind, WlRegistryGlobalEvent},
 };
-
-macro_rules! reject_malformed {
-    ($e:expr) => {
-        if let WaylandProtocolParsingOutcome::MalformedMessage = $e {
-            return false;
-        } else if let WaylandProtocolParsingOutcome::Ok(e) = $e {
-            Some(e)
-        } else {
-            None
-        }
-    };
-}
 
 pub struct WlMitmState {
     objects: WlObjects,

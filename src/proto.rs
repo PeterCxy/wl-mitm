@@ -9,6 +9,18 @@ use crate::{
     objects::{WlObjectType, WlObjects},
 };
 
+macro_rules! reject_malformed {
+    ($e:expr) => {
+        if let crate::proto::WaylandProtocolParsingOutcome::MalformedMessage = $e {
+            return false;
+        } else if let crate::proto::WaylandProtocolParsingOutcome::Ok(e) = $e {
+            Some(e)
+        } else {
+            None
+        }
+    };
+}
+
 pub enum WaylandProtocolParsingOutcome<T> {
     Ok(T),
     MalformedMessage,
