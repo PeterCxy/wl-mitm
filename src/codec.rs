@@ -3,6 +3,7 @@ use std::os::fd::OwnedFd;
 use byteorder::{ByteOrder, NativeEndian};
 use bytes::{Bytes, BytesMut};
 
+#[allow(unused)]
 pub struct WlRawMsg {
     // 4 bytes
     pub obj_id: u32,

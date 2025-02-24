@@ -17,6 +17,7 @@ impl WlMitmState {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn on_c2s_request(&mut self, msg: &WlRawMsg) -> bool {
         decode_and_match_msg!(
             self.objects,
@@ -41,6 +42,7 @@ impl WlMitmState {
         true
     }
 
+    #[tracing::instrument(skip_all)]
     pub fn on_s2c_event(&mut self, msg: &WlRawMsg) -> bool {
         decode_and_match_msg!(
             self.objects,

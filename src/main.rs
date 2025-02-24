@@ -47,6 +47,7 @@ async fn main() {
     }
 }
 
+#[tracing::instrument(skip_all)]
 pub async fn handle_conn(src_path: String, mut downstream_conn: UnixStream) -> io::Result<()> {
     let mut upstream_conn = UnixStream::connect(src_path).await?;
 
