@@ -6,6 +6,13 @@ use byteorder::{ByteOrder, NativeEndian};
 
 use crate::codec::WlRawMsg;
 
+pub enum WaylandProtocolParsingOutcome<T> {
+    Ok(T),
+    MalformedMessage,
+    IncorrectObject,
+    IncorrectOpcode,
+}
+
 /// The default object ID of wl_display
 pub const WL_DISPLAY_OBJECT_ID: u32 = 1;
 /// Opcode for binding the wl_registry object
@@ -16,17 +23,24 @@ pub struct WlDisplayGetRegistry {
 }
 
 impl WlDisplayGetRegistry {
-    pub fn try_from_msg(msg: &WlRawMsg) -> Option<WlDisplayGetRegistry> {
-        if msg.obj_id == WL_DISPLAY_OBJECT_ID
-            && msg.opcode == WL_DISPLAY_GET_REGISTRY_OPCODE
-            && msg.payload().len() == 4
-        {
-            Some(WlDisplayGetRegistry {
-                registry_new_id: NativeEndian::read_u32(msg.payload()),
-            })
-        } else {
-            None
+    pub fn try_from_msg(msg: &WlRawMsg) -> WaylandProtocolParsingOutcome<WlDisplayGetRegistry> {
+        if msg.obj_id != WL_DISPLAY_OBJECT_ID {
+            return WaylandProtocolParsingOutcome::IncorrectObject;
         }
+
+        if msg.opcode != WL_DISPLAY_GET_REGISTRY_OPCODE {
+            return WaylandProtocolParsingOutcome::IncorrectOpcode;
+        }
+
+        let payload = msg.payload();
+
+        if payload.len() != 4 {
+            return WaylandProtocolParsingOutcome::MalformedMessage;
+        }
+
+        WaylandProtocolParsingOutcome::Ok(WlDisplayGetRegistry {
+            registry_new_id: NativeEndian::read_u32(msg.payload()),
+        })
     }
 }
 
@@ -44,29 +58,40 @@ pub struct WlRegistryGlobalEvent<'a> {
 }
 
 impl WlRegistryGlobalEvent<'_> {
-    pub fn try_from_msg(registry_obj_id: u32, msg: &WlRawMsg) -> Option<WlRegistryGlobalEvent<'_>> {
-        if msg.obj_id == registry_obj_id
-            && msg.opcode == WL_REGISTRY_GLOBAL_OPCODE
-            && msg.payload().len() >= 8
-        {
-            let payload = msg.payload();
-            let name = NativeEndian::read_u32(&payload[0..4]);
-            let interface_len = NativeEndian::read_u32(&payload[4..8]);
-
-            if interface_len + 4 >= payload.len() as u32 {
-                return None;
-            }
-
-            let version = NativeEndian::read_u32(&payload[payload.len() - 4..]);
-            let interface = std::str::from_utf8(&payload[8..8 + interface_len as usize]).ok()?;
-
-            Some(WlRegistryGlobalEvent {
-                name,
-                interface,
-                version,
-            })
-        } else {
-            None
+    pub fn try_from_msg(
+        registry_obj_id: u32,
+        msg: &WlRawMsg,
+    ) -> WaylandProtocolParsingOutcome<WlRegistryGlobalEvent<'_>> {
+        if msg.obj_id != registry_obj_id {
+            return WaylandProtocolParsingOutcome::IncorrectObject;
         }
+
+        if msg.opcode != WL_REGISTRY_GLOBAL_OPCODE {
+            return WaylandProtocolParsingOutcome::IncorrectOpcode;
+        }
+
+        let payload = msg.payload();
+
+        if payload.len() < 8 {
+            return WaylandProtocolParsingOutcome::MalformedMessage;
+        }
+
+        let name = NativeEndian::read_u32(&payload[0..4]);
+        let interface_len = NativeEndian::read_u32(&payload[4..8]);
+
+        if interface_len + 4 >= payload.len() as u32 {
+            return WaylandProtocolParsingOutcome::MalformedMessage;
+        }
+
+        let version = NativeEndian::read_u32(&payload[payload.len() - 4..]);
+        let Ok(interface) = std::str::from_utf8(&payload[8..8 + interface_len as usize]) else {
+            return WaylandProtocolParsingOutcome::MalformedMessage;
+        };
+
+        WaylandProtocolParsingOutcome::Ok(WlRegistryGlobalEvent {
+            name,
+            interface,
+            version,
+        })
     }
 }
