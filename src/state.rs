@@ -1,3 +1,5 @@
+use tracing::{debug, info};
+
 use crate::{
     codec::WlRawMsg,
     objects::{WlObjectType, WlObjects},
@@ -27,9 +29,10 @@ impl WlMitmState {
                     let Some(interface) = self.objects.lookup_global(msg.name) else {
                         return false;
                     };
-                    println!(
-                        "Client binding interface {}, object id = {}",
-                        interface, msg.new_id
+                    info!(
+                        interface = interface,
+                        obj_id = msg.new_id,
+                        "Client binding interface"
                     );
                 }
             }
@@ -43,9 +46,11 @@ impl WlMitmState {
             self.objects,
             match msg {
                 WlRegistryGlobalEvent => {
-                    println!(
-                        "got global: {}, name {}, version {}",
-                        msg.interface, msg.name, msg.version
+                    debug!(
+                        interface = msg.interface,
+                        name = msg.name,
+                        version = msg.version,
+                        "got global"
                     );
 
                     self.objects.record_global(msg.name, msg.interface);

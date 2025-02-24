@@ -10,9 +10,12 @@ use std::{io, path::Path};
 use io_util::{WlMsgReader, WlMsgWriter};
 use state::WlMitmState;
 use tokio::net::{UnixListener, UnixStream};
+use tracing::{debug, error, info, span, Instrument, Level};
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt::init();
+
     let args: Vec<_> = std::env::args().collect();
     if args.len() < 3 {
         println!("Usage: {} <wl_display> <wl_display_proxied>", args[0]);
@@ -25,7 +28,7 @@ async fn main() {
     let proxied = format!("{}/{}", xdg_rt, args[2]);
 
     if src == proxied {
-        println!("downstream and upstream sockets should not be the same");
+        error!("downstream and upstream sockets should not be the same");
         return;
     }
 
@@ -35,9 +38,12 @@ async fn main() {
 
     let listener = UnixListener::bind(proxied).expect("Failed to bind to target socket");
 
+    let mut conn_id = 0;
     while let Ok((conn, addr)) = listener.accept().await {
-        println!("Accepted new client {:?}", addr);
-        tokio::spawn(handle_conn(src.clone(), conn));
+        info!(conn_id = conn_id, "Accepted new client {:?}", addr);
+        let span = span!(Level::INFO, "conn", conn_id = conn_id);
+        tokio::spawn(handle_conn(src.clone(), conn).instrument(span));
+        conn_id += 1;
     }
 }
 
@@ -60,7 +66,7 @@ pub async fn handle_conn(src_path: String, mut downstream_conn: UnixStream) -> i
             s2c_msg = upstream_read.read() => {
                 match s2c_msg? {
                     codec::DecoderOutcome::Decoded(wl_raw_msg) => {
-                        println!("s2c, obj_id = {}, opcode = {}", wl_raw_msg.obj_id, wl_raw_msg.opcode);
+                        debug!(obj_id = wl_raw_msg.obj_id, opcode = wl_raw_msg.opcode, "s2c event");
 
                         if state.on_s2c_event(&wl_raw_msg) {
                             downstream_write.queue_write(wl_raw_msg);
@@ -73,7 +79,7 @@ pub async fn handle_conn(src_path: String, mut downstream_conn: UnixStream) -> i
             c2s_msg = downstream_read.read() => {
                 match c2s_msg? {
                     codec::DecoderOutcome::Decoded(wl_raw_msg) => {
-                        println!("c2s, obj_id = {}, opcode = {}", wl_raw_msg.obj_id, wl_raw_msg.opcode);
+                        debug!(obj_id = wl_raw_msg.obj_id, opcode = wl_raw_msg.opcode, "c2s request");
 
                         if state.on_c2s_request(&wl_raw_msg) {
                             upstream_write.queue_write(wl_raw_msg);
