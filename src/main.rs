@@ -10,7 +10,7 @@ use std::{io, path::Path};
 use io_util::{WlMsgReader, WlMsgWriter};
 use state::WlMitmState;
 use tokio::net::{UnixListener, UnixStream};
-use tracing::{debug, error, info, span, Instrument, Level};
+use tracing::{Instrument, Level, debug, error, info, span};
 
 #[tokio::main]
 async fn main() {
