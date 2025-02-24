@@ -63,7 +63,7 @@ pub async fn handle_conn(src_path: String, mut downstream_conn: UnixStream) -> i
                         println!("s2c, obj_id = {}, opcode = {}", wl_raw_msg.obj_id, wl_raw_msg.opcode);
 
                         if state.on_s2c_event(&wl_raw_msg) {
-                            downstream_write.write(wl_raw_msg).await?;
+                            downstream_write.queue_write(wl_raw_msg);
                         }
                     },
                     codec::DecoderOutcome::Incomplete => continue,
@@ -76,13 +76,16 @@ pub async fn handle_conn(src_path: String, mut downstream_conn: UnixStream) -> i
                         println!("c2s, obj_id = {}, opcode = {}", wl_raw_msg.obj_id, wl_raw_msg.opcode);
 
                         if state.on_c2s_request(&wl_raw_msg) {
-                            upstream_write.write(wl_raw_msg).await?;
+                            upstream_write.queue_write(wl_raw_msg);
                         }
                     },
                     codec::DecoderOutcome::Incomplete => continue,
                     codec::DecoderOutcome::Eof => break Ok(()),
                 }
             }
+            // Try to write of we have any queued up. These don't do anything if no message is queued.
+            res = upstream_write.dequeue_write() => res?,
+            res = downstream_write.dequeue_write() => res?,
         }
     }
 }
