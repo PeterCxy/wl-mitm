@@ -29,7 +29,7 @@ impl WlMitmState {
         }
     }
 
-    pub fn on_c2s_msg(&mut self, msg: &WlRawMsg) -> bool {
+    pub fn on_c2s_request(&mut self, msg: &WlRawMsg) -> bool {
         if let Some(get_registry_msg) =
             reject_malformed!(WlDisplayGetRegistry::try_from_msg(&self.objects, msg))
         {
@@ -50,7 +50,7 @@ impl WlMitmState {
         true
     }
 
-    pub fn on_s2c_msg(&mut self, msg: &WlRawMsg) -> bool {
+    pub fn on_s2c_event(&mut self, msg: &WlRawMsg) -> bool {
         if let Some(global_msg) =
             reject_malformed!(WlRegistryGlobalEvent::try_from_msg(&self.objects, msg))
         {

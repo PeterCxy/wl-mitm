@@ -61,7 +61,7 @@ pub async fn handle_conn(src_path: String, mut downstream_conn: UnixStream) -> i
                     codec::DecoderOutcome::Decoded(wl_raw_msg) => {
                         println!("s2c, obj_id = {}, opcode = {}", wl_raw_msg.obj_id, wl_raw_msg.opcode);
 
-                        if state.on_s2c_msg(&wl_raw_msg) {
+                        if state.on_s2c_event(&wl_raw_msg) {
                             downstream_write.write(wl_raw_msg).await?;
                         }
                     },
@@ -74,7 +74,7 @@ pub async fn handle_conn(src_path: String, mut downstream_conn: UnixStream) -> i
                     codec::DecoderOutcome::Decoded(wl_raw_msg) => {
                         println!("c2s, obj_id = {}, opcode = {}", wl_raw_msg.obj_id, wl_raw_msg.opcode);
 
-                        if state.on_c2s_msg(&wl_raw_msg) {
+                        if state.on_c2s_request(&wl_raw_msg) {
                             upstream_write.write(wl_raw_msg).await?;
                         }
                     },
