@@ -122,7 +122,8 @@ impl<'a> WlRegistryGlobalEvent<'a> {
         }
 
         let version = NativeEndian::read_u32(&payload[payload.len() - 4..]);
-        let Ok(interface) = std::str::from_utf8(&payload[8..8 + interface_len as usize]) else {
+        // -1 because of 0-terminator
+        let Ok(interface) = std::str::from_utf8(&payload[8..8 + interface_len as usize - 1]) else {
             return WaylandProtocolParsingOutcome::MalformedMessage;
         };
 
