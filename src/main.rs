@@ -3,10 +3,12 @@ mod io_util;
 mod objects;
 #[macro_use]
 mod proto;
+mod config;
 mod state;
 
 use std::{io, path::Path};
 
+use config::Config;
 use io_util::{WlMsgReader, WlMsgWriter};
 use state::WlMitmState;
 use tokio::net::{UnixListener, UnixStream};
@@ -16,27 +18,35 @@ use tracing::{Instrument, Level, debug, error, info, span};
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    let mut conf_file = "config.toml";
+
     let args: Vec<_> = std::env::args().collect();
-    if args.len() < 3 {
-        println!("Usage: {} <wl_display> <wl_display_proxied>", args[0]);
-        return;
+    if args.len() >= 2 {
+        conf_file = &args[2];
     }
 
-    let xdg_rt = std::env::var("XDG_RUNTIME_DIR").expect("XDG_RUNTIME_DIR not set");
+    let conf_str = tokio::fs::read_to_string(conf_file)
+        .await
+        .expect("Can't read config file");
+    let config: Config = toml::from_str(&conf_str).expect("Can't decode config file");
 
-    let src = format!("{}/{}", xdg_rt, args[1]);
-    let proxied = format!("{}/{}", xdg_rt, args[2]);
+    let src = config.socket.upstream_socket_path();
+    let proxied = config.socket.listen_socket_path();
 
     if src == proxied {
         error!("downstream and upstream sockets should not be the same");
         return;
     }
 
-    if Path::exists(proxied.as_ref()) {
-        std::fs::remove_file(&proxied).expect("Cannot unlink existing socket");
+    if proxied.exists() {
+        tokio::fs::remove_file(&proxied)
+            .await
+            .expect("Cannot unlink existing socket");
     }
 
-    let listener = UnixListener::bind(proxied).expect("Failed to bind to target socket");
+    let listener = UnixListener::bind(&proxied).expect("Failed to bind to target socket");
+
+    info!(path = ?proxied, "Listening on socket");
 
     let mut conn_id = 0;
     while let Ok((conn, addr)) = listener.accept().await {
@@ -48,7 +58,10 @@ async fn main() {
 }
 
 #[tracing::instrument(skip_all)]
-pub async fn handle_conn(src_path: String, mut downstream_conn: UnixStream) -> io::Result<()> {
+pub async fn handle_conn(
+    src_path: impl AsRef<Path>,
+    mut downstream_conn: UnixStream,
+) -> io::Result<()> {
     let mut upstream_conn = UnixStream::connect(src_path).await?;
 
     let (upstream_read, upstream_write) = upstream_conn.split();

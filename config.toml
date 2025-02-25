@@ -1,0 +1,7 @@
+[socket]
+# Which socket to listen on? If relative,
+# defaults to being relative to $XDG_RUNTIME_DIR
+listen = "wayland-2"
+# Which Wayland socket to use as upstream?
+# If missing, defaults to $WAYLAND_DISPLAY
+# upstream = "wayland-1"
