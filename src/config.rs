@@ -1,10 +1,14 @@
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashSet,
+    path::{Path, PathBuf},
+};
 
 use serde_derive::Deserialize;
 
 #[derive(Deserialize)]
 pub struct Config {
     pub socket: WlSockets,
+    pub filter: WlFilter,
 }
 
 fn default_upstream_socket() -> String {
@@ -44,4 +48,9 @@ impl WlSockets {
             .into()
         }
     }
+}
+
+#[derive(Deserialize)]
+pub struct WlFilter {
+    pub allowed_globals: HashSet<String>,
 }

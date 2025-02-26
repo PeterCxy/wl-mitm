@@ -5,3 +5,21 @@ listen = "wayland-2"
 # Which Wayland socket to use as upstream?
 # If missing, defaults to $WAYLAND_DISPLAY
 # upstream = "wayland-1"
+
+[filter]
+# A list of Wayland global singleton objects that's allowed
+# Each of them generally correspond to an implemented protocol
+# For a list of these, see <https://wayland.app>
+# Note that not every object is exposed and created as a global.
+allowed_globals = [
+    # Base wl protocols
+    "wl_compositor",
+    "wl_shm",
+    "wl_data_device_manager",
+    "wl_seat",
+    # Window management
+    "xdg_wm_base",
+    "zxdg_decoration_manager_v1",
+    # Linux DMA-BUF
+    "zwp_linux_dmabuf_v1",
+]

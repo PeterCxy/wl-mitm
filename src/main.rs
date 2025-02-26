@@ -6,7 +6,7 @@ mod proto;
 mod config;
 mod state;
 
-use std::{io, path::Path};
+use std::{io, path::Path, sync::Arc};
 
 use config::Config;
 use io_util::{WlMsgReader, WlMsgWriter};
@@ -28,7 +28,8 @@ async fn main() {
     let conf_str = tokio::fs::read_to_string(conf_file)
         .await
         .expect("Can't read config file");
-    let config: Config = toml::from_str(&conf_str).expect("Can't decode config file");
+    let config: Arc<Config> =
+        Arc::new(toml::from_str(&conf_str).expect("Can't decode config file"));
 
     let src = config.socket.upstream_socket_path();
     let proxied = config.socket.listen_socket_path();
@@ -52,13 +53,14 @@ async fn main() {
     while let Ok((conn, addr)) = listener.accept().await {
         info!(conn_id = conn_id, "Accepted new client {:?}", addr);
         let span = span!(Level::INFO, "conn", conn_id = conn_id);
-        tokio::spawn(handle_conn(src.clone(), conn).instrument(span));
+        tokio::spawn(handle_conn(config.clone(), src.clone(), conn).instrument(span));
         conn_id += 1;
     }
 }
 
 #[tracing::instrument(skip_all)]
 pub async fn handle_conn(
+    config: Arc<Config>,
     src_path: impl AsRef<Path>,
     mut downstream_conn: UnixStream,
 ) -> io::Result<()> {
@@ -73,7 +75,7 @@ pub async fn handle_conn(
     let mut upstream_write = WlMsgWriter::new(upstream_write);
     let mut downstream_write = WlMsgWriter::new(downstream_write);
 
-    let mut state = WlMitmState::new();
+    let mut state = WlMitmState::new(config);
 
     loop {
         tokio::select! {

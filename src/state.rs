@@ -1,18 +1,23 @@
+use std::sync::Arc;
+
 use tracing::{debug, info};
 
 use crate::{
     codec::WlRawMsg,
+    config::Config,
     objects::{WlObjectType, WlObjects},
     proto::{WlDisplayGetRegistry, WlRegistryBind, WlRegistryGlobalEvent},
 };
 
 pub struct WlMitmState {
+    config: Arc<Config>,
     objects: WlObjects,
 }
 
 impl WlMitmState {
-    pub fn new() -> WlMitmState {
+    pub fn new(config: Arc<Config>) -> WlMitmState {
         WlMitmState {
+            config,
             objects: WlObjects::new(),
         }
     }
@@ -56,6 +61,14 @@ impl WlMitmState {
                     );
 
                     self.objects.record_global(msg.name, msg.interface);
+
+                    if !self.config.filter.allowed_globals.contains(msg.interface) {
+                        info!(
+                            interface = msg.interface,
+                            "Removing interface from published globals"
+                        );
+                        return false;
+                    }
                 }
             }
         );
