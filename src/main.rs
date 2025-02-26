@@ -53,7 +53,16 @@ async fn main() {
     while let Ok((conn, addr)) = listener.accept().await {
         info!(conn_id = conn_id, "Accepted new client {:?}", addr);
         let span = span!(Level::INFO, "conn", conn_id = conn_id);
-        tokio::spawn(handle_conn(config.clone(), src.clone(), conn).instrument(span));
+        let _config = config.clone();
+        let _src = src.clone();
+        tokio::spawn(
+            async move {
+                if let Err(e) = handle_conn(_config, _src, conn).await {
+                    error!(error = ?e, "Failure handling connection");
+                }
+            }
+            .instrument(span),
+        );
         conn_id += 1;
     }
 }

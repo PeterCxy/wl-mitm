@@ -6,7 +6,7 @@ use byteorder::{ByteOrder, NativeEndian};
 
 use crate::{
     codec::WlRawMsg,
-    objects::{WlObjectType, WlObjects},
+    objects::{WlObjectType, WlObjectTypeId, WlObjects},
 };
 
 macro_rules! reject_malformed {
@@ -55,6 +55,16 @@ pub const WL_DISPLAY_OBJECT_ID: u32 = 1;
 /// Opcode for binding the wl_registry object
 pub const WL_DISPLAY_GET_REGISTRY_OPCODE: u16 = 1;
 
+struct WlDisplayTypeId;
+
+pub const WL_DISPLAY: WlObjectType = WlObjectType::new(&WlDisplayTypeId);
+
+impl WlObjectTypeId for WlDisplayTypeId {
+    fn interface(&self) -> &'static str {
+        "wl_display"
+    }
+}
+
 pub struct WlDisplayGetRegistry {
     pub registry_new_id: u32,
 }
@@ -64,12 +74,7 @@ impl WlDisplayGetRegistry {
         objects: &WlObjects,
         msg: &WlRawMsg,
     ) -> WaylandProtocolParsingOutcome<WlDisplayGetRegistry> {
-        require_obj_type_and_opcode!(
-            objects,
-            msg,
-            WlObjectType::WlDisplay,
-            WL_DISPLAY_GET_REGISTRY_OPCODE
-        );
+        require_obj_type_and_opcode!(objects, msg, WL_DISPLAY, WL_DISPLAY_GET_REGISTRY_OPCODE);
 
         let payload = msg.payload();
 
@@ -84,6 +89,16 @@ impl WlDisplayGetRegistry {
 }
 
 // ---------- wl_registry ---------
+
+struct WlRegistryTypeId;
+
+pub const WL_REGISTRY: WlObjectType = WlObjectType::new(&WlRegistryTypeId);
+
+impl WlObjectTypeId for WlRegistryTypeId {
+    fn interface(&self) -> &'static str {
+        "wl_registry"
+    }
+}
 
 /// Opcode for server->client "global" events
 pub const WL_REGISTRY_GLOBAL_OPCODE: u16 = 0;
@@ -101,12 +116,7 @@ impl<'a> WlRegistryGlobalEvent<'a> {
         objects: &'obj WlObjects,
         msg: &'a WlRawMsg,
     ) -> WaylandProtocolParsingOutcome<WlRegistryGlobalEvent<'a>> {
-        require_obj_type_and_opcode!(
-            objects,
-            msg,
-            WlObjectType::WlRegistry,
-            WL_REGISTRY_GLOBAL_OPCODE
-        );
+        require_obj_type_and_opcode!(objects, msg, WL_REGISTRY, WL_REGISTRY_GLOBAL_OPCODE);
 
         let payload = msg.payload();
 
@@ -145,12 +155,7 @@ impl WlRegistryBind {
         objects: &WlObjects,
         msg: &WlRawMsg,
     ) -> WaylandProtocolParsingOutcome<WlRegistryBind> {
-        require_obj_type_and_opcode!(
-            objects,
-            msg,
-            WlObjectType::WlRegistry,
-            WL_REGISTRY_BIND_OPCODE
-        );
+        require_obj_type_and_opcode!(objects, msg, WL_REGISTRY, WL_REGISTRY_BIND_OPCODE);
 
         let payload = msg.payload();
 

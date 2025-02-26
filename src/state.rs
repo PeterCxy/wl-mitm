@@ -5,8 +5,8 @@ use tracing::{debug, info};
 use crate::{
     codec::WlRawMsg,
     config::Config,
-    objects::{WlObjectType, WlObjects},
-    proto::{WlDisplayGetRegistry, WlRegistryBind, WlRegistryGlobalEvent},
+    objects::WlObjects,
+    proto::{WL_REGISTRY, WlDisplayGetRegistry, WlRegistryBind, WlRegistryGlobalEvent},
 };
 
 pub struct WlMitmState {
@@ -28,8 +28,7 @@ impl WlMitmState {
             self.objects,
             match msg {
                 WlDisplayGetRegistry => {
-                    self.objects
-                        .record_object(WlObjectType::WlRegistry, msg.registry_new_id);
+                    self.objects.record_object(WL_REGISTRY, msg.registry_new_id);
                 }
                 WlRegistryBind => {
                     let Some(interface) = self.objects.lookup_global(msg.name) else {
