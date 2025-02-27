@@ -25,7 +25,7 @@ macro_rules! reject_malformed {
 macro_rules! decode_and_match_msg {
     ($objects:expr, match $msg:ident {$($t:ty => $act:block$(,)?)+}) => {
         $(
-            if let Some($msg) = reject_malformed!(<$t>::try_from_msg(&$objects, $msg)) {
+            if let Some($msg) = reject_malformed!(<$t as crate::proto::WlParsedMessage>::try_from_msg(&$objects, $msg)) {
                 $act
             }
         )+
@@ -39,16 +39,26 @@ pub enum WaylandProtocolParsingOutcome<T> {
     IncorrectOpcode,
 }
 
-macro_rules! require_obj_type_and_opcode {
-    ($objects:expr, $msg:expr, $t:expr, $opcode:expr) => {
-        if $objects.lookup_object($msg.obj_id) != Some($t) {
+pub trait WlParsedMessage<'a>: Sized {
+    fn opcode() -> u16;
+    fn object_type() -> WlObjectType;
+    fn try_from_msg<'obj>(
+        objects: &'obj WlObjects,
+        msg: &'a WlRawMsg,
+    ) -> WaylandProtocolParsingOutcome<Self> {
+        // Verify object type and opcode
+        if objects.lookup_object(msg.obj_id) != Some(Self::object_type()) {
             return WaylandProtocolParsingOutcome::IncorrectObject;
         }
 
-        if $msg.opcode != $opcode {
+        if msg.opcode != Self::opcode() {
             return WaylandProtocolParsingOutcome::IncorrectOpcode;
         }
-    };
+
+        Self::try_from_msg_impl(msg)
+    }
+
+    fn try_from_msg_impl(msg: &'a WlRawMsg) -> WaylandProtocolParsingOutcome<Self>;
 }
 
 wayland_proto_gen!("proto/wayland.xml");
@@ -62,13 +72,16 @@ pub struct WlDisplayGetRegistry {
     pub registry_new_id: u32,
 }
 
-impl WlDisplayGetRegistry {
-    pub fn try_from_msg(
-        objects: &WlObjects,
-        msg: &WlRawMsg,
-    ) -> WaylandProtocolParsingOutcome<WlDisplayGetRegistry> {
-        require_obj_type_and_opcode!(objects, msg, WL_DISPLAY, WL_DISPLAY_GET_REGISTRY_OPCODE);
+impl WlParsedMessage<'_> for WlDisplayGetRegistry {
+    fn object_type() -> WlObjectType {
+        WL_DISPLAY
+    }
 
+    fn opcode() -> u16 {
+        WL_DISPLAY_GET_REGISTRY_OPCODE
+    }
+
+    fn try_from_msg_impl(msg: &WlRawMsg) -> WaylandProtocolParsingOutcome<WlDisplayGetRegistry> {
         let payload = msg.payload();
 
         if payload.len() != 4 {
@@ -94,13 +107,18 @@ pub struct WlRegistryGlobalEvent<'a> {
     pub version: u32,
 }
 
-impl<'a> WlRegistryGlobalEvent<'a> {
-    pub fn try_from_msg<'obj>(
-        objects: &'obj WlObjects,
+impl<'a> WlParsedMessage<'a> for WlRegistryGlobalEvent<'a> {
+    fn opcode() -> u16 {
+        WL_REGISTRY_GLOBAL_OPCODE
+    }
+
+    fn object_type() -> WlObjectType {
+        WL_REGISTRY
+    }
+
+    fn try_from_msg_impl(
         msg: &'a WlRawMsg,
     ) -> WaylandProtocolParsingOutcome<WlRegistryGlobalEvent<'a>> {
-        require_obj_type_and_opcode!(objects, msg, WL_REGISTRY, WL_REGISTRY_GLOBAL_OPCODE);
-
         let payload = msg.payload();
 
         if payload.len() < 8 {
@@ -133,13 +151,16 @@ pub struct WlRegistryBind {
     pub new_id: u32,
 }
 
-impl WlRegistryBind {
-    pub fn try_from_msg(
-        objects: &WlObjects,
-        msg: &WlRawMsg,
-    ) -> WaylandProtocolParsingOutcome<WlRegistryBind> {
-        require_obj_type_and_opcode!(objects, msg, WL_REGISTRY, WL_REGISTRY_BIND_OPCODE);
+impl<'a> WlParsedMessage<'a> for WlRegistryBind {
+    fn opcode() -> u16 {
+        WL_REGISTRY_BIND_OPCODE
+    }
 
+    fn object_type() -> WlObjectType {
+        WL_REGISTRY
+    }
+
+    fn try_from_msg_impl(msg: &'a WlRawMsg) -> WaylandProtocolParsingOutcome<WlRegistryBind> {
         let payload = msg.payload();
 
         if payload.len() < 8 {
