@@ -3,6 +3,7 @@
 // ---------- wl_display ---------
 
 use byteorder::{ByteOrder, NativeEndian};
+use protogen::wayland_proto_gen;
 
 use crate::{
     codec::WlRawMsg,
@@ -50,20 +51,12 @@ macro_rules! require_obj_type_and_opcode {
     };
 }
 
+wayland_proto_gen!("proto/wayland.xml");
+
 /// The default object ID of wl_display
 pub const WL_DISPLAY_OBJECT_ID: u32 = 1;
 /// Opcode for binding the wl_registry object
 pub const WL_DISPLAY_GET_REGISTRY_OPCODE: u16 = 1;
-
-struct WlDisplayTypeId;
-
-pub const WL_DISPLAY: WlObjectType = WlObjectType::new(&WlDisplayTypeId);
-
-impl WlObjectTypeId for WlDisplayTypeId {
-    fn interface(&self) -> &'static str {
-        "wl_display"
-    }
-}
 
 pub struct WlDisplayGetRegistry {
     pub registry_new_id: u32,
@@ -89,16 +82,6 @@ impl WlDisplayGetRegistry {
 }
 
 // ---------- wl_registry ---------
-
-struct WlRegistryTypeId;
-
-pub const WL_REGISTRY: WlObjectType = WlObjectType::new(&WlRegistryTypeId);
-
-impl WlObjectTypeId for WlRegistryTypeId {
-    fn interface(&self) -> &'static str {
-        "wl_registry"
-    }
-}
 
 /// Opcode for server->client "global" events
 pub const WL_REGISTRY_GLOBAL_OPCODE: u16 = 0;
