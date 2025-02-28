@@ -70,6 +70,7 @@ impl WlMsg {
     pub fn generate_struct_and_impl(&self, interface_name_snake: &str) -> proc_macro2::TokenStream {
         let opcode = self.opcode;
         let interface_name_snake_upper = format_ident!("{}", interface_name_snake.to_uppercase());
+        let msg_type = format_ident!("{}", self.msg_type.as_str());
 
         // e.g. WlRegistryBindRequest
         let struct_name = format_ident!(
@@ -107,8 +108,24 @@ impl WlMsg {
                     #opcode
                 }
 
+                fn self_opcode(&self) -> u16 {
+                    #opcode
+                }
+
                 fn object_type() -> WlObjectType {
                     #interface_name_snake_upper
+                }
+
+                fn self_object_type(&self) -> WlObjectType {
+                    #interface_name_snake_upper
+                }
+
+                fn msg_type() -> WlMsgType {
+                    WlMsgType::#msg_type
+                }
+
+                fn self_msg_type(&self) -> WlMsgType {
+                    WlMsgType::#msg_type
                 }
 
                 fn try_from_msg_impl(msg: &crate::codec::WlRawMsg) -> WaylandProtocolParsingOutcome<#struct_name> {
@@ -121,6 +138,8 @@ impl WlMsg {
                     })
                 }
             }
+
+            unsafe impl<'a> AnyWlParsedMessage<'a> for #struct_name<'a> {}
         }
     }
 }

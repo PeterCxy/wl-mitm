@@ -26,8 +26,9 @@ impl WlMitmState {
 
     #[tracing::instrument(skip_all)]
     pub fn on_c2s_request(&mut self, msg: &WlRawMsg) -> bool {
-        decode_and_match_msg!(
-            self.objects,
+        let msg = crate::proto::decode_request(&self.objects, msg);
+
+        match_decoded! {
             match msg {
                 WlDisplayGetRegistryRequest => {
                     self.objects.record_object(WL_REGISTRY, msg.registry);
@@ -43,15 +44,16 @@ impl WlMitmState {
                     );
                 }
             }
-        );
+        }
 
         true
     }
 
     #[tracing::instrument(skip_all)]
     pub fn on_s2c_event(&mut self, msg: &WlRawMsg) -> bool {
-        decode_and_match_msg!(
-            self.objects,
+        let msg = crate::proto::decode_event(&self.objects, msg);
+
+        match_decoded! {
             match msg {
                 WlRegistryGlobalEvent => {
                     debug!(
@@ -72,7 +74,7 @@ impl WlMitmState {
                     }
                 }
             }
-        );
+        }
 
         true
     }
