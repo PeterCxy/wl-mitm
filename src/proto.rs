@@ -51,7 +51,13 @@ pub enum WaylandProtocolParsingOutcome<T> {
     Unknown,
 }
 
-pub trait WlParsedMessage<'a> {
+/// Internal module used to seal the [WlParsedMessage] trait
+mod __private {
+    pub(super) trait WlParsedMessagePrivate {}
+}
+
+#[allow(private_bounds)]
+pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
     fn opcode() -> u16
     where
         Self: Sized;

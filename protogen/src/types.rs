@@ -103,6 +103,8 @@ impl WlMsg {
                 #( pub #field_names: #field_types, )*
             }
 
+            impl<'a> __private::WlParsedMessagePrivate for #struct_name<'a> {}
+
             impl<'a> WlParsedMessage<'a> for #struct_name<'a> {
                 fn opcode() -> u16 {
                     #opcode
