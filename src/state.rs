@@ -6,7 +6,9 @@ use crate::{
     codec::WlRawMsg,
     config::Config,
     objects::WlObjects,
-    proto::{WL_REGISTRY, WlDisplayGetRegistry, WlRegistryBind, WlRegistryGlobalEvent},
+    proto::{
+        WL_REGISTRY, WlDisplayGetRegistryRequest, WlRegistryBindRequest, WlRegistryGlobalEvent,
+    },
 };
 
 pub struct WlMitmState {
@@ -27,16 +29,16 @@ impl WlMitmState {
         decode_and_match_msg!(
             self.objects,
             match msg {
-                WlDisplayGetRegistry => {
-                    self.objects.record_object(WL_REGISTRY, msg.registry_new_id);
+                WlDisplayGetRegistryRequest => {
+                    self.objects.record_object(WL_REGISTRY, msg.registry);
                 }
-                WlRegistryBind => {
+                WlRegistryBindRequest => {
                     let Some(interface) = self.objects.lookup_global(msg.name) else {
                         return false;
                     };
                     info!(
                         interface = interface,
-                        obj_id = msg.new_id,
+                        obj_id = msg.id,
                         "Client binding interface"
                     );
                 }

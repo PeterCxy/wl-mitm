@@ -90,10 +90,22 @@ fn handle_interface(
                     str::from_utf8(e.local_name().into_inner()).expect("Unable to parse start tag");
                 let append = if start_tag == "event" {
                     event_opcode += 1;
-                    handle_request_or_event(reader, &interface_name_camel, event_opcode - 1, e)
+                    handle_request_or_event(
+                        reader,
+                        &interface_name_camel,
+                        &interface_name_snake_upper,
+                        event_opcode - 1,
+                        e,
+                    )
                 } else if start_tag == "request" {
                     request_opcode += 1;
-                    handle_request_or_event(reader, &interface_name_camel, request_opcode - 1, e)
+                    handle_request_or_event(
+                        reader,
+                        &interface_name_camel,
+                        &interface_name_snake_upper,
+                        request_opcode - 1,
+                        e,
+                    )
                 } else {
                     proc_macro2::TokenStream::new()
                 };
@@ -114,6 +126,7 @@ fn handle_interface(
 fn handle_request_or_event(
     reader: &mut quick_xml::Reader<&[u8]>,
     interface_name_camel: &str,
+    interface_name_snake_upper: &Ident,
     opcode: u16,
     start: quick_xml::events::BytesStart<'_>,
 ) -> proc_macro2::TokenStream {
@@ -174,18 +187,48 @@ fn handle_request_or_event(
         .map(|(name, tt)| (format_ident!("{name}"), tt.to_rust_type()))
         .unzip();
 
-    // FIXME: Remove the starting `_` when we complete
-    let struct_name = format_ident!("_{interface_name_camel}{name_camel}{start_tag_camel}");
+    let struct_name = format_ident!("{interface_name_camel}{name_camel}{start_tag_camel}");
 
     let struct_def = quote! {
-        struct #struct_name<'a> {
+        pub struct #struct_name<'a> {
             _phantom: std::marker::PhantomData<&'a ()>,
-            #( #field_names: #field_types, )*
+            #( pub #field_names: #field_types, )*
+        }
+    };
+
+    let parser_code: Vec<_> = args
+        .into_iter()
+        .map(|(arg_name, arg_type)| {
+            let arg_name_ident = format_ident!("{arg_name}");
+            arg_type.generate_parser_code(arg_name_ident)
+        })
+        .collect();
+
+    let struct_impl = quote! {
+        impl<'a> WlParsedMessage<'a> for #struct_name<'a> {
+            fn opcode() -> u16 {
+                #opcode
+            }
+
+            fn object_type() -> WlObjectType {
+                #interface_name_snake_upper
+            }
+
+            fn try_from_msg_impl(msg: &crate::codec::WlRawMsg) -> WaylandProtocolParsingOutcome<#struct_name> {
+                let payload = msg.payload();
+                let mut pos = 0usize;
+                #( #parser_code )*
+                WaylandProtocolParsingOutcome::Ok(#struct_name {
+                    _phantom: std::marker::PhantomData,
+                    #( #field_names, )*
+                })
+            }
         }
     };
 
     quote! {
         #struct_def
+        #struct_impl
     }
 }
 

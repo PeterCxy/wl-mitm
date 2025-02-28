@@ -1,4 +1,5 @@
 use quote::quote;
+use syn::Ident;
 
 pub(crate) enum WlArgType {
     Int,
@@ -40,6 +41,83 @@ impl WlArgType {
             WlArgType::String => quote! { &'a str },
             WlArgType::Array => quote! { &'a [u8] },
             WlArgType::Fd => quote! { std::os::fd::BorrowedFd<'a> },
+        }
+    }
+
+    pub fn generate_parser_code(&self, var_name: Ident) -> proc_macro2::TokenStream {
+        match self {
+            WlArgType::Int => quote! {
+                if payload.len() < pos + 4 {
+                    return WaylandProtocolParsingOutcome::MalformedMessage;
+                }
+
+                let #var_name: i32 = byteorder::NativeEndian::read_i32(&payload[pos..pos + 4]);
+
+                pos += 4;
+            },
+            WlArgType::Uint
+            | WlArgType::Fixed
+            | WlArgType::Object
+            | WlArgType::NewId
+            | WlArgType::Enum => quote! {
+                if payload.len() < pos + 4 {
+                    return WaylandProtocolParsingOutcome::MalformedMessage;
+                }
+
+                let #var_name: u32 = byteorder::NativeEndian::read_u32(&payload[pos..pos + 4]);
+
+                pos += 4;
+            },
+            WlArgType::String => quote! {
+                let #var_name: &str = {
+                    if payload.len() < pos + 4 {
+                        return WaylandProtocolParsingOutcome::MalformedMessage;
+                    }
+
+                    let len = byteorder::NativeEndian::read_u32(&payload[pos..pos + 4]) as usize;
+
+                    pos += 4;
+
+                    if payload.len() < pos + len {
+                        return WaylandProtocolParsingOutcome::MalformedMessage;
+                    }
+
+                    let Ok(#var_name) = std::str::from_utf8(&payload[pos..pos + len - 1]) else {
+                        return WaylandProtocolParsingOutcome::MalformedMessage;
+                    };
+
+                    pos += len;
+
+                    #var_name
+                };
+            },
+            WlArgType::Array => quote! {
+                let #var_name: &[u8] = {
+                    if payload.len() < pos + 4 {
+                        return WaylandProtocolParsingOutcome::MalformedMessage;
+                    }
+
+                    let len = byteorder::NativeEndian::read_u32(&payload[pos..pos + 4]) as usize;
+
+                    pos += 4;
+
+                    if payload.len() < pos + len {
+                        return WaylandProtocolParsingOutcome::MalformedMessage;
+                    }
+
+                    let #var_name = &payload[pos..pos + len];
+                    pos += len;
+
+                    #var_name
+                };
+            },
+            WlArgType::Fd => quote! {
+                if msg.fds.len() == 0 {
+                    return WaylandProtocolParsingOutcome::MalformedMessage;
+                }
+
+                let #var_name: std::os::fd::BorrowedFd<'_> = std::os::fd::AsFd::as_fd(&msg.fds[0]);
+            },
         }
     }
 }
