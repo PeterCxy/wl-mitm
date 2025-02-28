@@ -1,8 +1,7 @@
-use proc_macro2::Span;
 use quick_xml::events::Event;
-use quote::{format_ident, quote};
-use syn::{Ident, LitStr, parse_macro_input};
-use types::WlArgType;
+use quote::quote;
+use syn::{LitStr, parse_macro_input};
+use types::{WlArgType, WlInterface, WlMsg, WlMsgType};
 
 mod types;
 
@@ -13,7 +12,7 @@ pub fn wayland_proto_gen(item: proc_macro::TokenStream) -> proc_macro::TokenStre
     let mut reader = quick_xml::Reader::from_str(&xml_str);
     reader.config_mut().trim_text(true);
 
-    let mut ret = proc_macro2::TokenStream::new();
+    let mut interfaces: Vec<WlInterface> = vec![];
 
     loop {
         match reader.read_event().expect("Unable to parse XML file") {
@@ -25,11 +24,7 @@ pub fn wayland_proto_gen(item: proc_macro::TokenStream) -> proc_macro::TokenStre
                 match name {
                     "interface" => {
                         // An <interface> section
-                        let str = handle_interface(&mut reader, e);
-                        ret = quote! {
-                            #ret
-                            #str
-                        }
+                        interfaces.push(handle_interface(&mut reader, e));
                     }
                     _ => {}
                 }
@@ -38,13 +33,22 @@ pub fn wayland_proto_gen(item: proc_macro::TokenStream) -> proc_macro::TokenStre
         }
     }
 
-    ret.into()
+    let mut code: Vec<proc_macro2::TokenStream> = vec![];
+
+    for i in interfaces.iter() {
+        code.push(i.generate());
+    }
+
+    quote! {
+        #( #code )*
+    }
+    .into()
 }
 
 fn handle_interface(
     reader: &mut quick_xml::Reader<&[u8]>,
     start: quick_xml::events::BytesStart<'_>,
-) -> proc_macro2::TokenStream {
+) -> WlInterface {
     let name_attr = start
         .attributes()
         .map(|a| a.expect("attr parsing error"))
@@ -55,30 +59,8 @@ fn handle_interface(
         .expect("No name attr found for interface");
 
     let interface_name_snake = std::str::from_utf8(&name_attr.value).expect("utf8 encoding error");
-    let interface_name_camel = to_camel_case(interface_name_snake);
 
-    // Generate the implementation of the Wayland object type ID, consisting of a private struct
-    // to act as a trait object, a public const that wraps the struct in `WlObjectType`, and a impl
-    // of `WlObjectTypeId`.
-    // Example:
-    //    struct WlDisplayTypeId;
-    //    pub const WL_DISPLAY: WlObjectType = WlObjectType::new(&WlDisplayTypeId);
-    //    impl WlObjectTypeId for WlDisplayTypeId { ... }
-    let interface_type_id_name = format_ident!("{}TypeId", interface_name_camel);
-    let interface_name_literal = LitStr::new(interface_name_snake, Span::call_site());
-    let interface_name_snake_upper =
-        Ident::new(&interface_name_snake.to_uppercase(), Span::call_site());
-    let mut ret: proc_macro2::TokenStream = quote! {
-        struct #interface_type_id_name;
-
-        pub const #interface_name_snake_upper: WlObjectType = WlObjectType::new(&#interface_type_id_name);
-
-        impl WlObjectTypeId for #interface_type_id_name {
-            fn interface(&self) -> &'static str {
-                #interface_name_literal
-            }
-        }
-    };
+    let mut msgs: Vec<WlMsg> = vec![];
 
     // Opcodes are tracked separately, in order, for each type (event or request)
     let mut event_opcode = 0;
@@ -90,53 +72,43 @@ fn handle_interface(
             Event::Start(e) => {
                 let start_tag =
                     str::from_utf8(e.local_name().into_inner()).expect("Unable to parse start tag");
-                let append = if start_tag == "event" {
+                if start_tag == "event" {
                     // An event! Increment our opcode tracker for it!
                     event_opcode += 1;
-                    handle_request_or_event(
+                    msgs.push(handle_request_or_event(
                         reader,
-                        &interface_name_camel,
-                        &interface_name_snake_upper,
                         event_opcode - 1,
+                        WlMsgType::Event,
                         e,
-                    )
+                    ));
                 } else if start_tag == "request" {
                     // A request! Increment our opcode tracker for it!
                     request_opcode += 1;
-                    handle_request_or_event(
+                    msgs.push(handle_request_or_event(
                         reader,
-                        &interface_name_camel,
-                        &interface_name_snake_upper,
                         request_opcode - 1,
+                        WlMsgType::Request,
                         e,
-                    )
-                } else {
-                    proc_macro2::TokenStream::new()
+                    ));
                 };
-
-                ret = quote! {
-                    #ret
-                    #append
-                }
             }
             Event::End(e) if e.local_name() == start.local_name() => break,
             _ => continue,
         }
     }
 
-    ret
+    WlInterface {
+        name_snake: interface_name_snake.to_string(),
+        msgs,
+    }
 }
 
 fn handle_request_or_event(
     reader: &mut quick_xml::Reader<&[u8]>,
-    interface_name_camel: &str,
-    interface_name_snake_upper: &Ident,
     opcode: u16,
+    msg_type: WlMsgType,
     start: quick_xml::events::BytesStart<'_>,
-) -> proc_macro2::TokenStream {
-    let start_tag =
-        str::from_utf8(start.local_name().into_inner()).expect("Unable to parse start tag");
-    let start_tag_camel = to_camel_case(start_tag);
+) -> WlMsg {
     let name_attr = start
         .attributes()
         .map(|a| a.expect("attr parsing error"))
@@ -145,8 +117,6 @@ fn handle_request_or_event(
                 == "name"
         })
         .expect("No name attr found for request/event");
-    let name_camel = to_camel_case(str::from_utf8(&name_attr.value).expect("utf8 encoding error"));
-
     // Load arguments and their types from XML
     let mut args: Vec<(String, WlArgType)> = Vec::new();
 
@@ -187,66 +157,17 @@ fn handle_request_or_event(
         }
     }
 
-    let (field_names, field_types): (Vec<_>, Vec<_>) = args
-        .iter()
-        .map(|(name, tt)| (format_ident!("{name}"), tt.to_rust_type()))
-        .unzip();
-
-    let struct_name = format_ident!("{interface_name_camel}{name_camel}{start_tag_camel}");
-
-    // Struct definition, such as:
-    //
-    // pub struct WlDisplayGetRegistryRequest<'a> {
-    //    _phantom: PhantomData<&'a ()>,
-    //    registry: u32
-    // }
-    //
-    // The 'a lifetime is added across the board for consistency.
-    let struct_def = quote! {
-        pub struct #struct_name<'a> {
-            _phantom: std::marker::PhantomData<&'a ()>,
-            #( pub #field_names: #field_types, )*
-        }
-    };
-
-    // Generate code to include in the parser for every field
-    let parser_code: Vec<_> = args
-        .into_iter()
-        .map(|(arg_name, arg_type)| {
-            let arg_name_ident = format_ident!("{arg_name}");
-            arg_type.generate_parser_code(arg_name_ident)
-        })
-        .collect();
-
-    let struct_impl = quote! {
-        impl<'a> WlParsedMessage<'a> for #struct_name<'a> {
-            fn opcode() -> u16 {
-                #opcode
-            }
-
-            fn object_type() -> WlObjectType {
-                #interface_name_snake_upper
-            }
-
-            fn try_from_msg_impl(msg: &crate::codec::WlRawMsg) -> WaylandProtocolParsingOutcome<#struct_name> {
-                let payload = msg.payload();
-                let mut pos = 0usize;
-                #( #parser_code )*
-                WaylandProtocolParsingOutcome::Ok(#struct_name {
-                    _phantom: std::marker::PhantomData,
-                    #( #field_names, )*
-                })
-            }
-        }
-    };
-
-    quote! {
-        #struct_def
-        #struct_impl
+    WlMsg {
+        name_snake: str::from_utf8(&name_attr.value)
+            .expect("utf8 encoding error")
+            .to_string(),
+        msg_type,
+        opcode,
+        args,
     }
 }
 
-fn to_camel_case(s: &str) -> String {
+pub(crate) fn to_camel_case(s: &str) -> String {
     s.split("_")
         .map(|item| {
             item.char_indices()

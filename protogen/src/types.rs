@@ -1,5 +1,129 @@
-use quote::quote;
-use syn::Ident;
+use proc_macro2::Span;
+use quote::{format_ident, quote};
+use syn::{Ident, LitStr};
+
+pub(crate) struct WlInterface {
+    pub name_snake: String,
+    pub msgs: Vec<WlMsg>,
+}
+
+impl WlInterface {
+    pub fn generate(&self) -> proc_macro2::TokenStream {
+        // Generate struct and parser impls for all messages belonging to this interface
+        let msg_impl = self
+            .msgs
+            .iter()
+            .map(|msg| msg.generate_struct_and_impl(&self.name_snake));
+
+        // Also generate a struct representing the type of this interface
+        // This is used to keep track of all objects in [objects]
+        // Example:
+        //    struct WlDisplayTypeId;
+        //    pub const WL_DISPLAY: WlObjectType = WlObjectType::new(&WlDisplayTypeId);
+        //    impl WlObjectTypeId for WlDisplayTypeId { ... }
+        let interface_type_id_name =
+            format_ident!("{}TypeId", crate::to_camel_case(&self.name_snake));
+        let interface_name_literal = LitStr::new(&self.name_snake, Span::call_site());
+        let interface_name_snake_upper =
+            Ident::new(&self.name_snake.to_uppercase(), Span::call_site());
+
+        quote! {
+            struct #interface_type_id_name;
+
+            pub const #interface_name_snake_upper: WlObjectType = WlObjectType::new(&#interface_type_id_name);
+
+            impl WlObjectTypeId for #interface_type_id_name {
+                fn interface(&self) -> &'static str {
+                    #interface_name_literal
+                }
+            }
+
+            #( #msg_impl )*
+        }
+    }
+}
+
+pub(crate) enum WlMsgType {
+    Request,
+    Event,
+}
+
+impl WlMsgType {
+    fn as_str(&self) -> &'static str {
+        match self {
+            WlMsgType::Request => "Request",
+            WlMsgType::Event => "Event",
+        }
+    }
+}
+
+pub(crate) struct WlMsg {
+    pub name_snake: String,
+    pub msg_type: WlMsgType,
+    pub opcode: u16,
+    pub args: Vec<(String, WlArgType)>,
+}
+
+impl WlMsg {
+    /// Generates a struct corresponding to the message type and a impl for [WlParsedMessage]
+    /// that includes a parser
+    pub fn generate_struct_and_impl(&self, interface_name_snake: &str) -> proc_macro2::TokenStream {
+        let opcode = self.opcode;
+        let interface_name_snake_upper = format_ident!("{}", interface_name_snake.to_uppercase());
+
+        // e.g. WlRegistryBindRequest
+        let struct_name = format_ident!(
+            "{}{}{}",
+            crate::to_camel_case(interface_name_snake),
+            crate::to_camel_case(&self.name_snake),
+            self.msg_type.as_str()
+        );
+
+        // Build all field names and their corresponding Rust type identifiers
+        let (field_names, field_types): (Vec<_>, Vec<_>) = self
+            .args
+            .iter()
+            .map(|(name, tt)| (format_ident!("{name}"), tt.to_rust_type()))
+            .unzip();
+
+        // Generate code to include in the parser for every field
+        let parser_code: Vec<_> = self
+            .args
+            .iter()
+            .map(|(arg_name, arg_type)| {
+                let arg_name_ident = format_ident!("{arg_name}");
+                arg_type.generate_parser_code(arg_name_ident)
+            })
+            .collect();
+
+        quote! {
+            pub struct #struct_name<'a> {
+                _phantom: std::marker::PhantomData<&'a ()>,
+                #( pub #field_names: #field_types, )*
+            }
+
+            impl<'a> WlParsedMessage<'a> for #struct_name<'a> {
+                fn opcode() -> u16 {
+                    #opcode
+                }
+
+                fn object_type() -> WlObjectType {
+                    #interface_name_snake_upper
+                }
+
+                fn try_from_msg_impl(msg: &crate::codec::WlRawMsg) -> WaylandProtocolParsingOutcome<#struct_name> {
+                    let payload = msg.payload();
+                    let mut pos = 0usize;
+                    #( #parser_code )*
+                    WaylandProtocolParsingOutcome::Ok(#struct_name {
+                        _phantom: std::marker::PhantomData,
+                        #( #field_names, )*
+                    })
+                }
+            }
+        }
+    }
+}
 
 pub(crate) enum WlArgType {
     Int,
