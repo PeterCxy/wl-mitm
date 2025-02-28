@@ -39,13 +39,16 @@ pub enum WaylandProtocolParsingOutcome<T> {
     IncorrectOpcode,
 }
 
-pub trait WlParsedMessage<'a>: Sized {
+pub trait WlParsedMessage<'a> {
     fn opcode() -> u16;
     fn object_type() -> WlObjectType;
     fn try_from_msg<'obj>(
         objects: &'obj WlObjects,
         msg: &'a WlRawMsg,
-    ) -> WaylandProtocolParsingOutcome<Self> {
+    ) -> WaylandProtocolParsingOutcome<Self>
+    where
+        Self: Sized,
+    {
         // Verify object type and opcode
         if objects.lookup_object(msg.obj_id) != Some(Self::object_type()) {
             return WaylandProtocolParsingOutcome::IncorrectObject;
@@ -58,7 +61,9 @@ pub trait WlParsedMessage<'a>: Sized {
         Self::try_from_msg_impl(msg)
     }
 
-    fn try_from_msg_impl(msg: &'a WlRawMsg) -> WaylandProtocolParsingOutcome<Self>;
+    fn try_from_msg_impl(msg: &'a WlRawMsg) -> WaylandProtocolParsingOutcome<Self>
+    where
+        Self: Sized;
 }
 
 /// The default object ID of wl_display
