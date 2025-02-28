@@ -29,6 +29,8 @@ impl WlArgType {
         }
     }
 
+    /// What's the Rust type corresponding to this WL protocol type?
+    /// Returned as a token that can be used directly in quote! {}
     pub fn to_rust_type(&self) -> proc_macro2::TokenStream {
         match self {
             WlArgType::Int => quote! { i32 },
@@ -44,6 +46,17 @@ impl WlArgType {
         }
     }
 
+    /// Generate code to be inserted into the parsing function. The parsing function is expected
+    /// to set up two variables (with `msg` as the input [WlRawMsg]):
+    ///
+    ///   let payload: &[u8] = msg.payload();
+    ///   let mut pos: usize = 0;
+    ///
+    /// `pos` records where we last read in the payload.
+    ///
+    /// Code generated here will set up a variable with `var_name` containing the parsed result
+    /// of the current argument. This `var_name` can then be used later to construct the event or
+    /// request's struct.
     pub fn generate_parser_code(&self, var_name: Ident) -> proc_macro2::TokenStream {
         match self {
             WlArgType::Int => quote! {

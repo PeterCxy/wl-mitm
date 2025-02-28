@@ -24,6 +24,7 @@ pub fn wayland_proto_gen(item: proc_macro::TokenStream) -> proc_macro::TokenStre
 
                 match name {
                     "interface" => {
+                        // An <interface> section
                         let str = handle_interface(&mut reader, e);
                         ret = quote! {
                             #ret
@@ -79,6 +80,7 @@ fn handle_interface(
         }
     };
 
+    // Opcodes are tracked separately, in order, for each type (event or request)
     let mut event_opcode = 0;
     let mut request_opcode = 0;
 
@@ -89,6 +91,7 @@ fn handle_interface(
                 let start_tag =
                     str::from_utf8(e.local_name().into_inner()).expect("Unable to parse start tag");
                 let append = if start_tag == "event" {
+                    // An event! Increment our opcode tracker for it!
                     event_opcode += 1;
                     handle_request_or_event(
                         reader,
@@ -98,6 +101,7 @@ fn handle_interface(
                         e,
                     )
                 } else if start_tag == "request" {
+                    // A request! Increment our opcode tracker for it!
                     request_opcode += 1;
                     handle_request_or_event(
                         reader,
@@ -143,6 +147,7 @@ fn handle_request_or_event(
         .expect("No name attr found for request/event");
     let name_camel = to_camel_case(str::from_utf8(&name_attr.value).expect("utf8 encoding error"));
 
+    // Load arguments and their types from XML
     let mut args: Vec<(String, WlArgType)> = Vec::new();
 
     loop {
@@ -189,6 +194,14 @@ fn handle_request_or_event(
 
     let struct_name = format_ident!("{interface_name_camel}{name_camel}{start_tag_camel}");
 
+    // Struct definition, such as:
+    //
+    // pub struct WlDisplayGetRegistryRequest<'a> {
+    //    _phantom: PhantomData<&'a ()>,
+    //    registry: u32
+    // }
+    //
+    // The 'a lifetime is added across the board for consistency.
     let struct_def = quote! {
         pub struct #struct_name<'a> {
             _phantom: std::marker::PhantomData<&'a ()>,
@@ -196,6 +209,7 @@ fn handle_request_or_event(
         }
     };
 
+    // Generate code to include in the parser for every field
     let parser_code: Vec<_> = args
         .into_iter()
         .map(|(arg_name, arg_type)| {
