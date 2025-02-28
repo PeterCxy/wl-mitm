@@ -1,6 +1,10 @@
 //! Protocol definitions necessary for this MITM proxy
 
-use std::sync::RwLock;
+use std::{
+    collections::HashMap,
+    hash::{BuildHasherDefault, DefaultHasher},
+    sync::RwLock,
+};
 
 use byteorder::ByteOrder;
 use protogen::wayland_proto_gen;
@@ -23,10 +27,6 @@ macro_rules! bubble_malformed {
 
 macro_rules! match_decoded {
     (match $decoded:ident {$($t:ty => $act:block$(,)?)+}) => {
-        if let crate::proto::WaylandProtocolParsingOutcome::MalformedMessage = $decoded {
-            return false;
-        }
-
         if let crate::proto::WaylandProtocolParsingOutcome::Ok($decoded) = $decoded {
             $(
                 if let Some($decoded) = $decoded.downcast_ref::<$t>() {
@@ -153,7 +153,13 @@ pub trait WlMsgParserFn: Send + Sync {
     ) -> WaylandProtocolParsingOutcome<Box<dyn AnyWlParsedMessage<'msg> + 'msg>>;
 }
 
+/// A map from known interface names to their object types in Rust representation
+static WL_KNOWN_OBJECT_TYPES: RwLock<
+    HashMap<&'static str, WlObjectType, BuildHasherDefault<DefaultHasher>>,
+> = RwLock::new(HashMap::with_hasher(BuildHasherDefault::new()));
+/// Parsers for all known events
 static WL_EVENT_PARSERS: RwLock<Vec<&'static dyn WlMsgParserFn>> = RwLock::new(Vec::new());
+/// Parsers for all known requests
 static WL_REQUEST_PARSERS: RwLock<Vec<&'static dyn WlMsgParserFn>> = RwLock::new(Vec::new());
 
 /// Decode a Wayland event from a [WlRawMsg], returning the type-erased result, or
@@ -196,6 +202,14 @@ pub fn decode_request<'obj, 'msg>(
     WaylandProtocolParsingOutcome::Unknown
 }
 
+/// Look up a known object type from its name to its Rust [WlObjectType] representation
+pub fn lookup_known_object_type(name: &str) -> Option<WlObjectType> {
+    WL_KNOWN_OBJECT_TYPES
+        .read()
+        .ok()
+        .and_then(|t| t.get(name).copied())
+}
+
 /// The default object ID of wl_display
 pub const WL_DISPLAY_OBJECT_ID: u32 = 1;
 
@@ -204,4 +218,8 @@ wayland_proto_gen!("proto/wayland.xml");
 /// Install all available Wayland protocol parsers for use by [decode_event] and [decode_request].
 pub fn wl_init_parsers() {
     wl_init_parsers_wayland();
+}
+
+pub fn wl_init_known_types() {
+    wl_init_known_types_wayland();
 }

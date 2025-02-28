@@ -64,6 +64,10 @@ impl WlObjects {
         self.objects.get(&id).cloned()
     }
 
+    pub fn remove_object(&mut self, id: u32) {
+        self.objects.remove(&id);
+    }
+
     pub fn record_global(&mut self, name: u32, interface: &str) {
         self.global_names.insert(name, interface.to_string());
     }

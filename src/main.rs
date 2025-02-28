@@ -18,6 +18,7 @@ use tracing::{Instrument, Level, debug, error, info, span};
 async fn main() {
     tracing_subscriber::fmt::init();
     proto::wl_init_parsers();
+    proto::wl_init_known_types();
 
     let mut conf_file = "config.toml";
 

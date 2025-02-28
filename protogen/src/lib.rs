@@ -40,8 +40,13 @@ pub fn wayland_proto_gen(item: proc_macro::TokenStream) -> proc_macro::TokenStre
     let mut code: Vec<proc_macro2::TokenStream> = vec![];
     let mut event_parsers: Vec<Ident> = vec![];
     let mut request_parsers: Vec<Ident> = vec![];
+    let (mut known_interface_names, mut known_interface_consts): (Vec<String>, Vec<Ident>) =
+        (vec![], vec![]);
 
     for i in interfaces.iter() {
+        known_interface_names.push(i.name_snake.clone());
+        known_interface_consts.push(format_ident!("{}", i.type_const_name()));
+
         code.push(i.generate());
 
         for m in i.msgs.iter() {
@@ -61,12 +66,19 @@ pub fn wayland_proto_gen(item: proc_macro::TokenStream) -> proc_macro::TokenStre
     // A function to add all event/request parsers to WL_EVENT_PARSERS and WL_REQUEST_PARSERS
     let add_parsers_fn = format_ident!("wl_init_parsers_{}", file_name.to_str().unwrap());
 
+    // A function to add all known interfaces to the WL_KNOWN_OBJECT_TYPES map from name -> Rust type
+    let add_object_types_fn = format_ident!("wl_init_known_types_{}", file_name.to_str().unwrap());
+
     quote! {
         #( #code )*
 
         fn #add_parsers_fn() {
             #( WL_EVENT_PARSERS.write().unwrap().push(&#event_parsers); )*
             #( WL_REQUEST_PARSERS.write().unwrap().push(&#request_parsers); )*
+        }
+
+        fn #add_object_types_fn() {
+            #( WL_KNOWN_OBJECT_TYPES.write().unwrap().insert(#known_interface_names, #known_interface_consts); )*
         }
     }
     .into()

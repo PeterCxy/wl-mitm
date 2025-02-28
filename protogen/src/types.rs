@@ -8,6 +8,12 @@ pub(crate) struct WlInterface {
 }
 
 impl WlInterface {
+    /// Name of the interface type's const representation, e.g. WL_WAYLAND
+    /// This can be used as a discriminant for interface types in Rust
+    pub fn type_const_name(&self) -> String {
+        self.name_snake.to_uppercase()
+    }
+
     pub fn generate(&self) -> proc_macro2::TokenStream {
         // Generate struct and parser impls for all messages belonging to this interface
         let msg_impl = self.msgs.iter().map(|msg| msg.generate_struct_and_impl());
@@ -21,13 +27,12 @@ impl WlInterface {
         let interface_type_id_name =
             format_ident!("{}TypeId", crate::to_camel_case(&self.name_snake));
         let interface_name_literal = LitStr::new(&self.name_snake, Span::call_site());
-        let interface_name_snake_upper =
-            Ident::new(&self.name_snake.to_uppercase(), Span::call_site());
+        let type_const_name = format_ident!("{}", self.type_const_name());
 
         quote! {
             struct #interface_type_id_name;
 
-            pub const #interface_name_snake_upper: WlObjectType = WlObjectType::new(&#interface_type_id_name);
+            pub const #type_const_name: WlObjectType = WlObjectType::new(&#interface_type_id_name);
 
             impl WlObjectTypeId for #interface_type_id_name {
                 fn interface(&self) -> &'static str {
