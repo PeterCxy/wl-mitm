@@ -171,6 +171,7 @@ fn handle_request_or_event(
             {
                 let mut name: Option<String> = None;
                 let mut tt: Option<WlArgType> = None;
+                let mut interface_name: Option<String> = None;
 
                 for attr in e.attributes() {
                     let attr = attr.expect("attr parsing error");
@@ -186,6 +187,32 @@ fn handle_request_or_event(
                         tt = Some(WlArgType::parse(
                             str::from_utf8(&attr.value).expect("utf8 encoding error"),
                         ));
+                    } else if attr_name == "interface" {
+                        interface_name = Some(
+                            str::from_utf8(&attr.value)
+                                .expect("utf8 encoding error")
+                                .to_string(),
+                        );
+                    }
+                }
+
+                if let Some(WlArgType::NewId) = tt {
+                    if interface_name.is_none() {
+                        // Unspecified interface for new_id; special serialization format!
+                        args.push((
+                            format!(
+                                "{}_interface_name",
+                                name.as_ref().expect("needs an arg name!")
+                            ),
+                            WlArgType::String,
+                        ));
+                        args.push((
+                            format!(
+                                "{}_interface_version",
+                                name.as_ref().expect("needs an arg name!")
+                            ),
+                            WlArgType::Uint,
+                        ))
                     }
                 }
 

@@ -48,6 +48,11 @@ impl WlMitmState {
                         return false;
                     };
 
+                    if interface != msg.id_interface_name {
+                        error!("Client binding to interface {}, but the interface name {} should correspond to {}", msg.id_interface_name, msg.name, interface);
+                        return false;
+                    }
+
                     info!(
                         interface = interface,
                         obj_id = msg.id,
@@ -55,7 +60,7 @@ impl WlMitmState {
                     );
 
                     if let Some(t) = crate::proto::lookup_known_object_type(interface) {
-                        //self.objects.record_object(t, msg.id);
+                        self.objects.record_object(t, msg.id);
                     }
                 }
             }
@@ -99,7 +104,7 @@ impl WlMitmState {
                 WlDisplayDeleteIdEvent => {
                     // When an object is acknowledged to be deleted, remove it from our
                     // internal cache of all registered objects
-                    //self.objects.remove_object(msg.id);
+                    self.objects.remove_object(msg.id);
                 }
             }
         }
