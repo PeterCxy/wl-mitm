@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use crate::{
     codec::WlRawMsg,
@@ -29,9 +29,10 @@ impl WlMitmState {
     pub fn on_c2s_request(&mut self, raw_msg: &WlRawMsg) -> bool {
         let msg = crate::proto::decode_request(&self.objects, raw_msg);
         if let crate::proto::WaylandProtocolParsingOutcome::MalformedMessage = msg {
-            debug!(
+            error!(
                 obj_id = raw_msg.obj_id,
                 opcode = raw_msg.opcode,
+                num_fds = raw_msg.fds.len(),
                 "Malformed request"
             );
             return false;
@@ -67,7 +68,7 @@ impl WlMitmState {
     pub fn on_s2c_event(&mut self, raw_msg: &WlRawMsg) -> bool {
         let msg = crate::proto::decode_event(&self.objects, raw_msg);
         if let crate::proto::WaylandProtocolParsingOutcome::MalformedMessage = msg {
-            debug!(
+            error!(
                 obj_id = raw_msg.obj_id,
                 opcode = raw_msg.opcode,
                 "Malformed event"
