@@ -10,10 +10,7 @@ pub(crate) struct WlInterface {
 impl WlInterface {
     pub fn generate(&self) -> proc_macro2::TokenStream {
         // Generate struct and parser impls for all messages belonging to this interface
-        let msg_impl = self
-            .msgs
-            .iter()
-            .map(|msg| msg.generate_struct_and_impl(&self.name_snake));
+        let msg_impl = self.msgs.iter().map(|msg| msg.generate_struct_and_impl());
 
         // Also generate a struct representing the type of this interface
         // This is used to keep track of all objects in [objects]
@@ -58,6 +55,7 @@ impl WlMsgType {
 }
 
 pub(crate) struct WlMsg {
+    pub interface_name_snake: String,
     pub name_snake: String,
     pub msg_type: WlMsgType,
     pub opcode: u16,
@@ -65,20 +63,32 @@ pub(crate) struct WlMsg {
 }
 
 impl WlMsg {
-    /// Generates a struct corresponding to the message type and a impl for [WlParsedMessage]
-    /// that includes a parser
-    pub fn generate_struct_and_impl(&self, interface_name_snake: &str) -> proc_macro2::TokenStream {
-        let opcode = self.opcode;
-        let interface_name_snake_upper = format_ident!("{}", interface_name_snake.to_uppercase());
-        let msg_type = format_ident!("{}", self.msg_type.as_str());
-
-        // e.g. WlRegistryBindRequest
-        let struct_name = format_ident!(
+    /// Get the name of the structure generated for this message
+    /// e.g. WlRegistryBindRequest
+    pub fn struct_name(&self) -> String {
+        format!(
             "{}{}{}",
-            crate::to_camel_case(interface_name_snake),
+            crate::to_camel_case(&self.interface_name_snake),
             crate::to_camel_case(&self.name_snake),
             self.msg_type.as_str()
-        );
+        )
+    }
+
+    pub fn parser_fn_name(&self) -> String {
+        format!("{}ParserFn", self.struct_name())
+    }
+
+    /// Generates a struct corresponding to the message type and a impl for [WlParsedMessage]
+    /// that includes a parser
+    pub fn generate_struct_and_impl(&self) -> proc_macro2::TokenStream {
+        let opcode = self.opcode;
+        let interface_name_snake_upper =
+            format_ident!("{}", self.interface_name_snake.to_uppercase());
+        let msg_type = format_ident!("{}", self.msg_type.as_str());
+
+        let struct_name = format_ident!("{}", self.struct_name());
+
+        let parser_fn_name = format_ident!("{}", self.parser_fn_name());
 
         // Build all field names and their corresponding Rust type identifiers
         let (field_names, field_types): (Vec<_>, Vec<_>) = self
@@ -142,6 +152,18 @@ impl WlMsg {
             }
 
             unsafe impl<'a> AnyWlParsedMessage<'a> for #struct_name<'a> {}
+
+            pub struct #parser_fn_name;
+
+            impl WlMsgParserFn for #parser_fn_name {
+                fn try_from_msg<'obj, 'msg>(
+                    &self,
+                    objects: &'obj WlObjects,
+                    msg: &'msg WlRawMsg,
+                ) -> WaylandProtocolParsingOutcome<Box<dyn AnyWlParsedMessage<'msg> + 'msg>> {
+                    #struct_name::try_from_msg(objects, msg).map(|r| Box::new(r) as Box<_>)
+                }
+            }
         }
     }
 }

@@ -17,6 +17,7 @@ use tracing::{Instrument, Level, debug, error, info, span};
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
+    proto::wl_init_parsers();
 
     let mut conf_file = "config.toml";
 
