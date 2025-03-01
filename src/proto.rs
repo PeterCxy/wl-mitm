@@ -25,18 +25,6 @@ macro_rules! bubble_malformed {
     }};
 }
 
-macro_rules! match_decoded {
-    (match $decoded:ident {$($t:ty => $act:block$(,)?)+}) => {
-        if let crate::proto::WaylandProtocolParsingOutcome::Ok($decoded) = $decoded {
-            $(
-                if let Some($decoded) = $decoded.downcast_ref::<$t>() {
-                    $act
-                }
-            )+
-        }
-    };
-}
-
 #[derive(PartialEq, Eq)]
 pub enum WlMsgType {
     Request,
