@@ -1,20 +1,41 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use quick_xml::events::Event;
 use quote::{format_ident, quote};
-use syn::{Ident, LitStr, parse_macro_input};
+use syn::Ident;
 use types::{WlArgType, WlInterface, WlMsg, WlMsgType};
 
 mod types;
 
-#[proc_macro]
-pub fn wayland_proto_gen(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    let input: LitStr = parse_macro_input!(item);
-    let p = PathBuf::from(input.value());
-    generate_from_xml_file(p).into()
+pub fn generate_from_dir(p: impl AsRef<Path>) -> String {
+    let (gen_code, (add_parsers_fn, add_object_types_fn)): (Vec<_>, (Vec<_>, Vec<_>)) =
+        std::fs::read_dir(p)
+            .expect("cannot open directory")
+            .filter_map(|f| f.ok())
+            .filter(|f| {
+                f.file_name()
+                    .to_str()
+                    .expect("utf8 encoding error")
+                    .ends_with(".xml")
+            })
+            .map(|f| generate_from_xml_file(f.path()))
+            .unzip();
+
+    quote! {
+        #( #gen_code )*
+
+        pub fn wl_init_parsers() {
+            #( #add_parsers_fn(); )*
+        }
+
+        pub fn wl_init_known_types() {
+            #( #add_object_types_fn(); )*
+        }
+    }
+    .to_string()
 }
 
-fn generate_from_xml_file(p: impl AsRef<Path>) -> proc_macro2::TokenStream {
+fn generate_from_xml_file(p: impl AsRef<Path>) -> (proc_macro2::TokenStream, (Ident, Ident)) {
     let file_name = p.as_ref().file_stem().expect("No file name provided");
     let xml_str = std::fs::read_to_string(&p).expect("Unable to read from file");
     let mut reader = quick_xml::Reader::from_str(&xml_str);
@@ -67,13 +88,15 @@ fn generate_from_xml_file(p: impl AsRef<Path>) -> proc_macro2::TokenStream {
         }
     }
 
+    let file_name_snake = file_name.to_str().unwrap().replace("-", "_");
+
     // A function to add all event/request parsers to WL_EVENT_PARSERS and WL_REQUEST_PARSERS
-    let add_parsers_fn = format_ident!("wl_init_parsers_{}", file_name.to_str().unwrap());
+    let add_parsers_fn = format_ident!("wl_init_parsers_{}", file_name_snake);
 
     // A function to add all known interfaces to the WL_KNOWN_OBJECT_TYPES map from name -> Rust type
-    let add_object_types_fn = format_ident!("wl_init_known_types_{}", file_name.to_str().unwrap());
+    let add_object_types_fn = format_ident!("wl_init_known_types_{}", file_name_snake);
 
-    quote! {
+    let ret_code = quote! {
         #( #code )*
 
         fn #add_parsers_fn() {
@@ -84,7 +107,9 @@ fn generate_from_xml_file(p: impl AsRef<Path>) -> proc_macro2::TokenStream {
         fn #add_object_types_fn() {
             #( WL_KNOWN_OBJECT_TYPES.write().unwrap().insert(#known_interface_names, #known_interface_consts); )*
         }
-    }
+    };
+
+    (ret_code, (add_parsers_fn, add_object_types_fn))
 }
 
 fn handle_interface(

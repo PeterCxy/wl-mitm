@@ -113,6 +113,7 @@ impl WlMsg {
             .collect();
 
         quote! {
+            #[allow(unused)]
             pub struct #struct_name<'a> {
                 _phantom: std::marker::PhantomData<&'a ()>,
                 #( pub #field_names: #field_types, )*
@@ -145,6 +146,7 @@ impl WlMsg {
                     WlMsgType::#msg_type
                 }
 
+                #[allow(unused)]
                 fn try_from_msg_impl(msg: &crate::codec::WlRawMsg) -> WaylandProtocolParsingOutcome<#struct_name> {
                     let payload = msg.payload();
                     let mut pos = 0usize;
