@@ -91,6 +91,7 @@ impl WlMsg {
         let interface_name_snake_upper =
             format_ident!("{}", self.interface_name_snake.to_uppercase());
         let msg_type = format_ident!("{}", self.msg_type.as_str());
+        let msg_name_snake = &self.name_snake;
 
         let struct_name = format_ident!("{}", self.struct_name());
 
@@ -173,6 +174,10 @@ impl WlMsg {
 
                 fn self_msg_type(&self) -> WlMsgType {
                     WlMsgType::#msg_type
+                }
+
+                fn self_msg_name(&self) -> &'static str {
+                    #msg_name_snake
                 }
 
                 #[allow(unused, private_interfaces)]

@@ -99,6 +99,7 @@ pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
     fn self_opcode(&self) -> u16;
     fn self_object_type(&self) -> WlObjectType;
     fn self_msg_type(&self) -> WlMsgType;
+    fn self_msg_name(&self) -> &'static str;
 
     /// The object ID which this message acts upon
     fn obj_id(&self) -> u32;

@@ -34,11 +34,12 @@ impl WlMitmState {
             if let Some(parent_obj) = self.objects.lookup_object(msg.obj_id()) {
                 for (id, tt) in created_objects.into_iter() {
                     debug!(
-                        parent_obj_type = parent_obj.interface(),
                         parent_obj_id = msg.obj_id(),
                         obj_type = tt.interface(),
                         obj_id = id,
-                        "Created object via message!"
+                        "Created object via message {}::{}",
+                        parent_obj.interface(),
+                        msg.self_msg_name()
                     );
                     self.objects.record_object(tt, id);
                 }
@@ -49,8 +50,9 @@ impl WlMitmState {
             if let Some(obj_type) = self.objects.lookup_object(msg.obj_id()) {
                 debug!(
                     obj_id = msg.obj_id(),
-                    obj_type = obj_type.interface(),
-                    "Object destructed via destructor"
+                    "Object destructed via destructor {}::{}",
+                    obj_type.interface(),
+                    msg.self_msg_name()
                 );
             }
 
