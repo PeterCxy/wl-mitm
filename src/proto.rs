@@ -110,8 +110,10 @@ pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
 /// it does not overlap with any other implementation of this trait.
 ///
 /// In addition, any implementor also asserts that the type implementing this trait
-/// does not contain any lifetime other than 'a. This is required for the soundness of
-/// the downcast_ref implementation.
+/// does not contain any lifetime other than 'a, and that the implenetor struct is
+/// _covariant_ with respect to lifetime 'a.
+/// 
+/// This is required for the soundness of the downcast_ref implementation.
 pub unsafe trait AnyWlParsedMessage<'a>: WlParsedMessage<'a> {}
 
 impl<'out, 'data: 'out> dyn AnyWlParsedMessage<'data> + 'data {
