@@ -7,9 +7,8 @@ use crate::{
     config::Config,
     objects::WlObjects,
     proto::{
-        WL_REGISTRY, WaylandProtocolParsingOutcome, WlDisplayDeleteIdEvent,
-        WlDisplayGetRegistryRequest, WlRegistryBindRequest, WlRegistryGlobalEvent,
-        WlRegistryGlobalRemoveEvent,
+        AnyWlParsedMessage, WaylandProtocolParsingOutcome, WlDisplayDeleteIdEvent,
+        WlRegistryBindRequest, WlRegistryGlobalEvent, WlRegistryGlobalRemoveEvent,
     },
 };
 
@@ -23,6 +22,18 @@ impl WlMitmState {
         WlMitmState {
             config,
             objects: WlObjects::new(),
+        }
+    }
+
+    /// Handle messages which register new objects with known interfaces.
+    ///
+    /// Note that most _globals_ are instantiated using [WlRegistryBindRequest]. That request
+    /// is not handled here.
+    fn handle_created_objects(&mut self, msg: &dyn AnyWlParsedMessage<'_>) {
+        if let Some(created_objects) = msg.known_objects_created() {
+            for (id, tt) in created_objects.into_iter() {
+                self.objects.record_object(tt, id);
+            }
         }
     }
 
@@ -54,9 +65,10 @@ impl WlMitmState {
             }
         };
 
-        if let Some(msg) = msg.downcast_ref::<WlDisplayGetRegistryRequest>() {
-            self.objects.record_object(WL_REGISTRY, msg.registry);
-        } else if let Some(msg) = msg.downcast_ref::<WlRegistryBindRequest>() {
+        self.handle_created_objects(&*msg);
+
+        // The bind request doesn't create interface with a fixed type; handle it separately.
+        if let Some(msg) = msg.downcast_ref::<WlRegistryBindRequest>() {
             // If we have blocked this global, this lookup should return None, thus blocking client attempts
             // to bind to a blocked global.
             // Note that because we've removed said global from the registry, a client _SHOULD NOT_ be attempting
@@ -105,6 +117,8 @@ impl WlMitmState {
                 return true;
             }
         };
+
+        self.handle_created_objects(&*msg);
 
         if let Some(msg) = msg.downcast_ref::<WlRegistryGlobalEvent>() {
             // This event is how Wayland servers announce globals -- and they are the entrypoint to

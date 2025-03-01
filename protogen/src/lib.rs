@@ -224,8 +224,10 @@ fn handle_request_or_event(
                     }
                 }
 
-                if let Some(WlArgType::NewId) = tt {
-                    if interface_name.is_none() {
+                if let Some(WlArgType::NewId(_)) = tt {
+                    if let Some(interface_name) = interface_name {
+                        tt.as_mut().unwrap().set_interface_name(interface_name);
+                    } else {
                         // Unspecified interface for new_id; special serialization format!
                         args.push((
                             format!(

@@ -99,6 +99,14 @@ pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
     fn self_opcode(&self) -> u16;
     fn self_object_type(&self) -> WlObjectType;
     fn self_msg_type(&self) -> WlMsgType;
+
+    /// List of (object id, object type) pairs created by this message
+    /// Note that this only includes objects created with a fixed, known interface
+    /// type. Wayland requests with `new_id` but without a fixed interface are
+    /// serialized differently, and are not included here. However, the only
+    /// widely-used message with that capability is [WlRegistryBindRequest],
+    /// which is already handled separately on its own.
+    fn known_objects_created(&self) -> Option<Vec<(u32, WlObjectType)>>;
 }
 
 /// A version of [WlParsedMessage] that supports downcasting. By implementing this

@@ -112,6 +112,31 @@ impl WlMsg {
             })
             .collect();
 
+        // Collect new objects created in this msg with a known object type (interface)
+        let (new_id_name, new_id_type): (Vec<_>, Vec<_>) = self
+            .args
+            .iter()
+            .filter_map(|it| match it.1 {
+                WlArgType::NewId(Some(ref interface)) => Some((
+                    format_ident!("{}", it.0),
+                    format_ident!("{}", interface.to_uppercase()),
+                )),
+                _ => None,
+            })
+            .unzip();
+
+        let known_objects_created = if new_id_name.len() > 0 {
+            quote! {
+                Some(vec![
+                    #( (self.#new_id_name, #new_id_type), )*
+                ])
+            }
+        } else {
+            quote! {
+                None
+            }
+        };
+
         quote! {
             #[allow(unused)]
             pub struct #struct_name<'a> {
@@ -156,6 +181,10 @@ impl WlMsg {
                         #( #field_names, )*
                     })
                 }
+
+                fn known_objects_created(&self) -> Option<Vec<(u32, WlObjectType)>> {
+                    #known_objects_created
+                }
             }
 
             unsafe impl<'a> AnyWlParsedMessage<'a> for #struct_name<'a> {}
@@ -180,7 +209,7 @@ pub(crate) enum WlArgType {
     Uint,
     Fixed,
     Object,
-    NewId,
+    NewId(Option<String>),
     String,
     Array,
     Fd,
@@ -194,7 +223,7 @@ impl WlArgType {
             "uint" => WlArgType::Uint,
             "fixed" => WlArgType::Fixed,
             "object" => WlArgType::Object,
-            "new_id" => WlArgType::NewId,
+            "new_id" => WlArgType::NewId(None),
             "string" => WlArgType::String,
             "array" => WlArgType::Array,
             "fd" => WlArgType::Fd,
@@ -203,12 +232,30 @@ impl WlArgType {
         }
     }
 
+    /// Attach a known, fixed interface name to `self`, if `self`
+    /// is a [WlArgType::NewId].
+    ///
+    /// If a [WlArgType::NewId] does not come with a known interface
+    /// tag, the caller is responsible for generating the additional
+    /// args (interface, version) as required by Wayland's special
+    /// serailization format for them
+    ///
+    /// We don't verify whether the interface is actually known here.
+    /// Rather, if it isn't known, our emitted code will refer to
+    /// an unknown type / const, which will cause a compile-time error.
+    pub fn set_interface_name(&mut self, interface: String) {
+        match self {
+            WlArgType::NewId(_) => *self = WlArgType::NewId(Some(interface)),
+            _ => panic!("not a new_id but got interface tag!"),
+        }
+    }
+
     /// What's the Rust type corresponding to this WL protocol type?
     /// Returned as a token that can be used directly in quote! {}
     pub fn to_rust_type(&self) -> proc_macro2::TokenStream {
         match self {
             WlArgType::Int => quote! { i32 },
-            WlArgType::Uint | WlArgType::Object | WlArgType::NewId | WlArgType::Enum => {
+            WlArgType::Uint | WlArgType::Object | WlArgType::NewId(_) | WlArgType::Enum => {
                 quote! { u32 }
             }
             WlArgType::Fixed => quote! { fixed::types::I24F8 }, // wl fixed point is 24.8 signed
@@ -240,7 +287,7 @@ impl WlArgType {
 
                 pos += 4;
             },
-            WlArgType::Uint | WlArgType::Object | WlArgType::NewId | WlArgType::Enum => quote! {
+            WlArgType::Uint | WlArgType::Object | WlArgType::NewId(_) | WlArgType::Enum => quote! {
                 if payload.len() < pos + 4 {
                     return WaylandProtocolParsingOutcome::MalformedMessage;
                 }
