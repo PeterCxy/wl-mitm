@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use quick_xml::events::Event;
 use quote::{format_ident, quote};
@@ -11,7 +11,11 @@ mod types;
 pub fn wayland_proto_gen(item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input: LitStr = parse_macro_input!(item);
     let p = PathBuf::from(input.value());
-    let file_name = p.file_stem().expect("No file name provided");
+    generate_from_xml_file(p).into()
+}
+
+fn generate_from_xml_file(p: impl AsRef<Path>) -> proc_macro2::TokenStream {
+    let file_name = p.as_ref().file_stem().expect("No file name provided");
     let xml_str = std::fs::read_to_string(&p).expect("Unable to read from file");
     let mut reader = quick_xml::Reader::from_str(&xml_str);
     reader.config_mut().trim_text(true);
@@ -81,7 +85,6 @@ pub fn wayland_proto_gen(item: proc_macro::TokenStream) -> proc_macro::TokenStre
             #( WL_KNOWN_OBJECT_TYPES.write().unwrap().insert(#known_interface_names, #known_interface_consts); )*
         }
     }
-    .into()
 }
 
 fn handle_interface(
