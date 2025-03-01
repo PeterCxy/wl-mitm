@@ -147,7 +147,7 @@ impl WlMsg {
                 }
 
                 #[allow(unused)]
-                fn try_from_msg_impl(msg: &crate::codec::WlRawMsg) -> WaylandProtocolParsingOutcome<#struct_name> {
+                fn try_from_msg_impl(msg: &crate::codec::WlRawMsg, _token: __private::WlParsedMessagePrivateToken) -> WaylandProtocolParsingOutcome<#struct_name> {
                     let payload = msg.payload();
                     let mut pos = 0usize;
                     #( #parser_code )*

@@ -59,9 +59,10 @@ impl<T> WaylandProtocolParsingOutcome<T> {
 /// Internal module used to seal the [WlParsedMessage] trait
 mod __private {
     pub(super) trait WlParsedMessagePrivate {}
+    pub(super) struct WlParsedMessagePrivateToken;
 }
 
-#[allow(private_bounds)]
+#[allow(private_bounds, private_interfaces)]
 pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
     fn opcode() -> u16
     where
@@ -88,10 +89,13 @@ pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
             return WaylandProtocolParsingOutcome::IncorrectOpcode;
         }
 
-        Self::try_from_msg_impl(msg)
+        Self::try_from_msg_impl(msg, __private::WlParsedMessagePrivateToken)
     }
 
-    fn try_from_msg_impl(msg: &'a WlRawMsg) -> WaylandProtocolParsingOutcome<Self>
+    fn try_from_msg_impl(
+        msg: &'a WlRawMsg,
+        _token: __private::WlParsedMessagePrivateToken,
+    ) -> WaylandProtocolParsingOutcome<Self>
     where
         Self: Sized + 'a;
 
