@@ -24,12 +24,12 @@ pub fn generate_from_dir(p: impl AsRef<Path>) -> String {
     quote! {
         #( #gen_code )*
 
-        pub fn wl_init_parsers() {
-            #( #add_parsers_fn(); )*
+        fn wl_init_parsers(event_parsers: &mut Vec<&'static dyn WlMsgParserFn>, request_parsers: &mut Vec<&'static dyn WlMsgParserFn>) {
+            #( #add_parsers_fn(event_parsers, request_parsers); )*
         }
 
-        pub fn wl_init_known_types() {
-            #( #add_object_types_fn(); )*
+        fn wl_init_known_types(object_types: &mut HashMap<&'static str, WlObjectType>) {
+            #( #add_object_types_fn(object_types); )*
         }
     }
     .to_string()
@@ -99,13 +99,13 @@ fn generate_from_xml_file(p: impl AsRef<Path>) -> (proc_macro2::TokenStream, (Id
     let ret_code = quote! {
         #( #code )*
 
-        fn #add_parsers_fn() {
-            #( WL_EVENT_PARSERS.write().unwrap().push(&#event_parsers); )*
-            #( WL_REQUEST_PARSERS.write().unwrap().push(&#request_parsers); )*
+        fn #add_parsers_fn(event_parsers: &mut Vec<&'static dyn WlMsgParserFn>, request_parsers: &mut Vec<&'static dyn WlMsgParserFn>) {
+            #( event_parsers.push(&#event_parsers); )*
+            #( request_parsers.push(&#request_parsers); )*
         }
 
-        fn #add_object_types_fn() {
-            #( WL_KNOWN_OBJECT_TYPES.write().unwrap().insert(#known_interface_names, #known_interface_consts); )*
+        fn #add_object_types_fn(object_types: &mut HashMap<&'static str, WlObjectType>) {
+            #( object_types.insert(#known_interface_names, #known_interface_consts); )*
         }
     };
 

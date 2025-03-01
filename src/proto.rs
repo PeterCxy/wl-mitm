@@ -1,10 +1,6 @@
 //! Protocol definitions necessary for this MITM proxy
 
-use std::{
-    collections::HashMap,
-    hash::{BuildHasherDefault, DefaultHasher},
-    sync::RwLock,
-};
+use std::{collections::HashMap, sync::LazyLock};
 
 use byteorder::ByteOrder;
 
@@ -112,7 +108,7 @@ pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
 /// In addition, any implementor also asserts that the type implementing this trait
 /// does not contain any lifetime other than 'a, and that the implenetor struct is
 /// _covariant_ with respect to lifetime 'a.
-/// 
+///
 /// This is required for the soundness of the downcast_ref implementation.
 pub unsafe trait AnyWlParsedMessage<'a>: WlParsedMessage<'a> {}
 
@@ -164,13 +160,21 @@ pub trait WlMsgParserFn: Send + Sync {
 }
 
 /// A map from known interface names to their object types in Rust representation
-static WL_KNOWN_OBJECT_TYPES: RwLock<
-    HashMap<&'static str, WlObjectType, BuildHasherDefault<DefaultHasher>>,
-> = RwLock::new(HashMap::with_hasher(BuildHasherDefault::new()));
-/// Parsers for all known events
-static WL_EVENT_PARSERS: RwLock<Vec<&'static dyn WlMsgParserFn>> = RwLock::new(Vec::new());
-/// Parsers for all known requests
-static WL_REQUEST_PARSERS: RwLock<Vec<&'static dyn WlMsgParserFn>> = RwLock::new(Vec::new());
+static WL_KNOWN_OBJECT_TYPES: LazyLock<HashMap<&'static str, WlObjectType>> = LazyLock::new(|| {
+    let mut ret = HashMap::new();
+    wl_init_known_types(&mut ret);
+    ret
+});
+/// Parsers for all known events / requests
+static WL_EVENT_REQUEST_PARSERS: LazyLock<(
+    Vec<&'static dyn WlMsgParserFn>,
+    Vec<&'static dyn WlMsgParserFn>,
+)> = LazyLock::new(|| {
+    let mut event_parsers = vec![];
+    let mut request_parsers = vec![];
+    wl_init_parsers(&mut event_parsers, &mut request_parsers);
+    (event_parsers, request_parsers)
+});
 
 /// Decode a Wayland event from a [WlRawMsg], returning the type-erased result, or
 /// [WaylandProtocolParsingOutcome::Unknown] for unknown messages, [WaylandProtocolParsingOutcome::MalformedMessage]
@@ -181,7 +185,7 @@ pub fn decode_event<'obj, 'msg>(
     objects: &'obj WlObjects,
     msg: &'msg WlRawMsg,
 ) -> WaylandProtocolParsingOutcome<Box<dyn AnyWlParsedMessage<'msg> + 'msg>> {
-    for p in WL_EVENT_PARSERS.read().unwrap().iter() {
+    for p in WL_EVENT_REQUEST_PARSERS.0.iter() {
         if let WaylandProtocolParsingOutcome::Ok(e) =
             bubble_malformed!(p.try_from_msg(objects, msg))
         {
@@ -201,7 +205,7 @@ pub fn decode_request<'obj, 'msg>(
     objects: &'obj WlObjects,
     msg: &'msg WlRawMsg,
 ) -> WaylandProtocolParsingOutcome<Box<dyn AnyWlParsedMessage<'msg> + 'msg>> {
-    for p in WL_REQUEST_PARSERS.read().unwrap().iter() {
+    for p in WL_EVENT_REQUEST_PARSERS.1.iter() {
         if let WaylandProtocolParsingOutcome::Ok(e) =
             bubble_malformed!(p.try_from_msg(objects, msg))
         {
@@ -214,10 +218,7 @@ pub fn decode_request<'obj, 'msg>(
 
 /// Look up a known object type from its name to its Rust [WlObjectType] representation
 pub fn lookup_known_object_type(name: &str) -> Option<WlObjectType> {
-    WL_KNOWN_OBJECT_TYPES
-        .read()
-        .ok()
-        .and_then(|t| t.get(name).copied())
+    WL_KNOWN_OBJECT_TYPES.get(name).copied()
 }
 
 /// The default object ID of wl_display
