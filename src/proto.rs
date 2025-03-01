@@ -78,7 +78,7 @@ pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
         msg: &'a WlRawMsg,
     ) -> WaylandProtocolParsingOutcome<Self>
     where
-        Self: Sized,
+        Self: Sized + 'a,
     {
         // Verify object type and opcode
         if objects.lookup_object(msg.obj_id) != Some(Self::object_type()) {
@@ -94,7 +94,7 @@ pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
 
     fn try_from_msg_impl(msg: &'a WlRawMsg) -> WaylandProtocolParsingOutcome<Self>
     where
-        Self: Sized;
+        Self: Sized + 'a;
 
     // dyn-available methods
     fn self_opcode(&self) -> u16;
@@ -105,10 +105,23 @@ pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
 /// A version of [WlParsedMessage] that supports downcasting. By implementing this
 /// trait, you promise that the (object_type, msg_type, opcode) triple is unique, i.e.
 /// it does not overlap with any other implementation of this trait.
+///
+/// In addition, any implementor also asserts that the type implementing this trait
+/// does not contain any lifetime other than 'a. This is required for the soundness of
+/// the downcast_ref implementation.
 pub unsafe trait AnyWlParsedMessage<'a>: WlParsedMessage<'a> {}
 
-impl<'a> dyn AnyWlParsedMessage<'a> + 'a {
-    pub fn downcast_ref<T: AnyWlParsedMessage<'a>>(&self) -> Option<&T> {
+impl<'out, 'data: 'out> dyn AnyWlParsedMessage<'data> + 'data {
+    /// Downcast the type-erased, borrowed Wayland message to a concrete type. Note that the
+    /// safety of this relies on a few invariants:
+    ///
+    /// 1. The (object_type, msg_type, opcode) triple is unique (guaranteed by unsafe trait)
+    /// 2. 'data outlives 'out (guaranteed by the trait bound above)
+    /// 3. The type implementing [AnyWlParsedMessage] does not contain any lifetime other than
+    ///    'data (or 'a in the trait's definition).
+    /// 4. No type other than those contained in this mod can implement [AnyWlParsedMessage]
+    ///    (enforced by the private trait bound [__private::WlParsedMessagePrivate])
+    pub fn downcast_ref<T: AnyWlParsedMessage<'data> + 'data>(&'out self) -> Option<&'out T> {
         if self.self_opcode() != T::opcode() {
             return None;
         }
@@ -124,6 +137,10 @@ impl<'a> dyn AnyWlParsedMessage<'a> + 'a {
         // SAFETY: We have verified the opcode, type, and msg type all match up
         // As per safety guarantee of [AnyWlParsedMessage], we've now narrowed
         // [self] down to one concrete type.
+        // In addition, because [AnyWlParsedMessage]'s contract requires that no
+        // lifetime other than 'a ('data) is contained in the implemetor, the
+        // output type T cannot contain another lifetime that may be transmuted
+        // by this unsafe block.
         Some(unsafe { &*(self as *const dyn AnyWlParsedMessage as *const T) })
     }
 }
