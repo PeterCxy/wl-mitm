@@ -9,6 +9,7 @@ use crate::{
     proto::{
         WL_REGISTRY, WaylandProtocolParsingOutcome, WlDisplayDeleteIdEvent,
         WlDisplayGetRegistryRequest, WlRegistryBindRequest, WlRegistryGlobalEvent,
+        WlRegistryGlobalRemoveEvent,
     },
 };
 
@@ -89,7 +90,7 @@ impl WlMitmState {
 
     #[tracing::instrument(skip_all)]
     pub fn on_s2c_event(&mut self, raw_msg: &WlRawMsg) -> bool {
-        let msg = match crate::proto::decode_request(&self.objects, raw_msg) {
+        let msg = match crate::proto::decode_event(&self.objects, raw_msg) {
             WaylandProtocolParsingOutcome::Ok(msg) => msg,
             WaylandProtocolParsingOutcome::MalformedMessage => {
                 error!(
@@ -128,6 +129,9 @@ impl WlMitmState {
             // Else, record the global object. These are the only ones we're ever going to allow through.
             // We block bind requests on any interface that's not recorded here.
             self.objects.record_global(msg.name, msg.interface);
+        } else if let Some(msg) = msg.downcast_ref::<WlRegistryGlobalRemoveEvent>() {
+            // Remove globals that the server has removed
+            self.objects.remove_global(msg.name);
         } else if let Some(msg) = msg.downcast_ref::<WlDisplayDeleteIdEvent>() {
             // Server has acknowledged deletion of an object
             self.objects.remove_object(msg.id);

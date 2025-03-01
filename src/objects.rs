@@ -75,4 +75,8 @@ impl WlObjects {
     pub fn lookup_global(&self, name: u32) -> Option<&str> {
         self.global_names.get(&name).map(|s| s.as_str())
     }
+
+    pub fn remove_global(&mut self, name: u32) {
+        self.global_names.remove(&name);
+    }
 }
