@@ -208,12 +208,10 @@ impl WlArgType {
     pub fn to_rust_type(&self) -> proc_macro2::TokenStream {
         match self {
             WlArgType::Int => quote! { i32 },
-            // TODO: "fixed" is decoded directly as a u32. fix it
-            WlArgType::Uint
-            | WlArgType::Fixed
-            | WlArgType::Object
-            | WlArgType::NewId
-            | WlArgType::Enum => quote! { u32 },
+            WlArgType::Uint | WlArgType::Object | WlArgType::NewId | WlArgType::Enum => {
+                quote! { u32 }
+            }
+            WlArgType::Fixed => quote! { fixed::types::I24F8 }, // wl fixed point is 24.8 signed
             WlArgType::String => quote! { &'a str },
             WlArgType::Array => quote! { &'a [u8] },
             WlArgType::Fd => quote! { std::os::fd::BorrowedFd<'a> },
@@ -242,16 +240,21 @@ impl WlArgType {
 
                 pos += 4;
             },
-            WlArgType::Uint
-            | WlArgType::Fixed
-            | WlArgType::Object
-            | WlArgType::NewId
-            | WlArgType::Enum => quote! {
+            WlArgType::Uint | WlArgType::Object | WlArgType::NewId | WlArgType::Enum => quote! {
                 if payload.len() < pos + 4 {
                     return WaylandProtocolParsingOutcome::MalformedMessage;
                 }
 
                 let #var_name: u32 = byteorder::NativeEndian::read_u32(&payload[pos..pos + 4]);
+
+                pos += 4;
+            },
+            WlArgType::Fixed => quote! {
+                if payload.len() < pos + 4 {
+                    return WaylandProtocolParsingOutcome::MalformedMessage;
+                }
+
+                let #var_name = fixed::types::I24F8::from_bits(byteorder::NativeEndian::read_i32(&payload[pos..pos + 4]));
 
                 pos += 4;
             },
