@@ -64,6 +64,7 @@ pub(crate) struct WlMsg {
     pub name_snake: String,
     pub msg_type: WlMsgType,
     pub opcode: u16,
+    pub is_destructor: bool,
     pub args: Vec<(String, WlArgType)>,
 }
 
@@ -137,10 +138,13 @@ impl WlMsg {
             }
         };
 
+        let is_destructor = self.is_destructor;
+
         quote! {
             #[allow(unused)]
             pub struct #struct_name<'a> {
                 _phantom: std::marker::PhantomData<&'a ()>,
+                obj_id: u32,
                 #( pub #field_names: #field_types, )*
             }
 
@@ -178,8 +182,17 @@ impl WlMsg {
                     #( #parser_code )*
                     WaylandProtocolParsingOutcome::Ok(#struct_name {
                         _phantom: std::marker::PhantomData,
+                        obj_id: msg.obj_id,
                         #( #field_names, )*
                     })
+                }
+
+                fn obj_id(&self) -> u32 {
+                    self.obj_id
+                }
+
+                fn is_destructor(&self) -> bool {
+                    #is_destructor
                 }
 
                 fn known_objects_created(&self) -> Option<Vec<(u32, WlObjectType)>> {

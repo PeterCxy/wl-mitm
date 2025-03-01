@@ -100,6 +100,12 @@ pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
     fn self_object_type(&self) -> WlObjectType;
     fn self_msg_type(&self) -> WlMsgType;
 
+    /// The object ID which this message acts upon
+    fn obj_id(&self) -> u32;
+
+    /// Is this request / event a destructor? That is, does it destroy [Self::obj_id()]?
+    fn is_destructor(&self) -> bool;
+
     /// List of (object id, object type) pairs created by this message
     /// Note that this only includes objects created with a fixed, known interface
     /// type. Wayland requests with `new_id` but without a fixed interface are

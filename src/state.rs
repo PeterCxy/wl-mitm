@@ -25,15 +25,36 @@ impl WlMitmState {
         }
     }
 
-    /// Handle messages which register new objects with known interfaces.
+    /// Handle messages which register new objects with known interfaces or deletes them.
     ///
     /// Note that most _globals_ are instantiated using [WlRegistryBindRequest]. That request
     /// is not handled here.
-    fn handle_created_objects(&mut self, msg: &dyn AnyWlParsedMessage<'_>) {
+    fn handle_created_or_destroyed_objects(&mut self, msg: &dyn AnyWlParsedMessage<'_>) {
         if let Some(created_objects) = msg.known_objects_created() {
-            for (id, tt) in created_objects.into_iter() {
-                self.objects.record_object(tt, id);
+            if let Some(parent_obj) = self.objects.lookup_object(msg.obj_id()) {
+                for (id, tt) in created_objects.into_iter() {
+                    debug!(
+                        parent_obj_type = parent_obj.interface(),
+                        parent_obj_id = msg.obj_id(),
+                        obj_type = tt.interface(),
+                        obj_id = id,
+                        "Created object via message!"
+                    );
+                    self.objects.record_object(tt, id);
+                }
+            } else {
+                error!("Parent object ID {} not found, ignoring", msg.obj_id());
             }
+        } else if msg.is_destructor() {
+            if let Some(obj_type) = self.objects.lookup_object(msg.obj_id()) {
+                debug!(
+                    obj_id = msg.obj_id(),
+                    obj_type = obj_type.interface(),
+                    "Object destructed via destructor"
+                );
+            }
+
+            self.objects.remove_object(msg.obj_id());
         }
     }
 
@@ -65,7 +86,7 @@ impl WlMitmState {
             }
         };
 
-        self.handle_created_objects(&*msg);
+        self.handle_created_or_destroyed_objects(&*msg);
 
         // The bind request doesn't create interface with a fixed type; handle it separately.
         if let Some(msg) = msg.downcast_ref::<WlRegistryBindRequest>() {
@@ -118,7 +139,7 @@ impl WlMitmState {
             }
         };
 
-        self.handle_created_objects(&*msg);
+        self.handle_created_or_destroyed_objects(&*msg);
 
         if let Some(msg) = msg.downcast_ref::<WlRegistryGlobalEvent>() {
             // This event is how Wayland servers announce globals -- and they are the entrypoint to

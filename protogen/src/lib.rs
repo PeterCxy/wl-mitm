@@ -187,6 +187,21 @@ fn handle_request_or_event(
                 == "name"
         })
         .expect("No name attr found for request/event");
+    let type_attr = start
+        .attributes()
+        .map(|a| a.expect("attr parsing error"))
+        .find(|a| {
+            std::str::from_utf8(a.key.local_name().into_inner()).expect("utf8 encoding error")
+                == "type"
+        })
+        .map(|a| {
+            str::from_utf8(&a.value)
+                .expect("utf8 encoding error")
+                .to_string()
+        });
+
+    let is_destructor = type_attr.map(|a| a == "destructor").unwrap_or(false);
+
     // Load arguments and their types from XML
     let mut args: Vec<(String, WlArgType)> = Vec::new();
 
@@ -263,6 +278,7 @@ fn handle_request_or_event(
             .to_string(),
         msg_type,
         opcode,
+        is_destructor,
         args,
     }
 }
