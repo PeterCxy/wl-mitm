@@ -41,7 +41,7 @@ pub fn generate_from_dir(out_dir: impl AsRef<Path>, p: impl AsRef<Path>) {
     let main_gen = quote! {
         #( include!(concat!(env!("OUT_DIR"), "/proto_generated/", #file_names, ".rs")); )*
 
-        fn wl_init_parsers(event_parsers: &mut Vec<&'static dyn WlMsgParserFn>, request_parsers: &mut Vec<&'static dyn WlMsgParserFn>) {
+        fn wl_init_parsers(event_parsers: &mut HashMap<(WlObjectType, u16), &'static dyn WlMsgParserFn>, request_parsers: &mut HashMap<(WlObjectType, u16), &'static dyn WlMsgParserFn>) {
             #( #add_parsers_fn(event_parsers, request_parsers); )*
         }
 
@@ -89,8 +89,16 @@ fn generate_from_xml_file(
     }
 
     let mut code: Vec<proc_macro2::TokenStream> = vec![];
-    let mut event_parsers: Vec<Ident> = vec![];
-    let mut request_parsers: Vec<Ident> = vec![];
+    let (mut event_interface_types, mut event_opcodes, mut event_parsers): (
+        Vec<Ident>,
+        Vec<u16>,
+        Vec<Ident>,
+    ) = Default::default();
+    let (mut request_interface_types, mut request_opcodes, mut request_parsers): (
+        Vec<Ident>,
+        Vec<u16>,
+        Vec<Ident>,
+    ) = Default::default();
     let (mut known_interface_names, mut known_interface_consts): (Vec<String>, Vec<Ident>) =
         (vec![], vec![]);
 
@@ -100,14 +108,21 @@ fn generate_from_xml_file(
 
         code.push(i.generate());
 
+        let interface_type = format_ident!("{}", i.name_snake.to_uppercase());
+
         for m in i.msgs.iter() {
             let parser_name = format_ident!("{}", m.parser_fn_name());
+            let opcode = m.opcode;
 
             match m.msg_type {
                 WlMsgType::Event => {
+                    event_interface_types.push(interface_type.clone());
+                    event_opcodes.push(opcode);
                     event_parsers.push(parser_name);
                 }
                 WlMsgType::Request => {
+                    request_interface_types.push(interface_type.clone());
+                    request_opcodes.push(opcode);
                     request_parsers.push(parser_name);
                 }
             }
@@ -126,9 +141,9 @@ fn generate_from_xml_file(
         #( #code )*
 
         #[allow(unused)]
-        fn #add_parsers_fn(event_parsers: &mut Vec<&'static dyn WlMsgParserFn>, request_parsers: &mut Vec<&'static dyn WlMsgParserFn>) {
-            #( event_parsers.push(&#event_parsers); )*
-            #( request_parsers.push(&#request_parsers); )*
+        fn #add_parsers_fn(event_parsers: &mut HashMap<(WlObjectType, u16), &'static dyn WlMsgParserFn>, request_parsers: &mut HashMap<(WlObjectType, u16), &'static dyn WlMsgParserFn>) {
+            #( event_parsers.insert((#event_interface_types, #event_opcodes), &#event_parsers); )*
+            #( request_parsers.insert((#request_interface_types, #request_opcodes), &#request_parsers); )*
         }
 
         #[allow(unused)]

@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashMap};
+use std::{any::Any, collections::HashMap, hash::Hash};
 
 use crate::proto::{WL_DISPLAY, WL_DISPLAY_OBJECT_ID};
 
@@ -39,6 +39,12 @@ impl PartialEq for WlObjectType {
 }
 
 impl Eq for WlObjectType {}
+
+impl Hash for WlObjectType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.interface().hash(state);
+    }
+}
 
 pub struct WlObjects {
     objects: HashMap<u32, WlObjectType>,

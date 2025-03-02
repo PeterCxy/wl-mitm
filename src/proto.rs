@@ -10,17 +10,6 @@ use crate::{
     objects::{WlObjectType, WlObjectTypeId, WlObjects},
 };
 
-macro_rules! bubble_malformed {
-    ($e:expr) => {{
-        let e = $e;
-        if let crate::proto::WaylandProtocolParsingOutcome::MalformedMessage = e {
-            return WaylandProtocolParsingOutcome::MalformedMessage;
-        } else {
-            e
-        }
-    }};
-}
-
 #[derive(PartialEq, Eq)]
 pub enum WlMsgType {
     Request,
@@ -190,11 +179,11 @@ static WL_KNOWN_OBJECT_TYPES: LazyLock<HashMap<&'static str, WlObjectType>> = La
 });
 /// Parsers for all known events / requests
 static WL_EVENT_REQUEST_PARSERS: LazyLock<(
-    Vec<&'static dyn WlMsgParserFn>,
-    Vec<&'static dyn WlMsgParserFn>,
+    HashMap<(WlObjectType, u16), &'static dyn WlMsgParserFn>,
+    HashMap<(WlObjectType, u16), &'static dyn WlMsgParserFn>,
 )> = LazyLock::new(|| {
-    let mut event_parsers = vec![];
-    let mut request_parsers = vec![];
+    let mut event_parsers = Default::default();
+    let mut request_parsers = Default::default();
     wl_init_parsers(&mut event_parsers, &mut request_parsers);
     (event_parsers, request_parsers)
 });
@@ -208,15 +197,15 @@ pub fn decode_event<'obj, 'msg>(
     objects: &'obj WlObjects,
     msg: &'msg WlRawMsg,
 ) -> WaylandProtocolParsingOutcome<Box<dyn AnyWlParsedMessage<'msg> + 'msg>> {
-    for p in WL_EVENT_REQUEST_PARSERS.0.iter() {
-        if let WaylandProtocolParsingOutcome::Ok(e) =
-            bubble_malformed!(p.try_from_msg(objects, msg))
-        {
-            return WaylandProtocolParsingOutcome::Ok(e);
-        }
-    }
+    let Some(obj_type) = objects.lookup_object(msg.obj_id) else {
+        return WaylandProtocolParsingOutcome::Unknown;
+    };
 
-    WaylandProtocolParsingOutcome::Unknown
+    let Some(msg_parser_fn) = WL_EVENT_REQUEST_PARSERS.0.get(&(obj_type, msg.opcode)) else {
+        return WaylandProtocolParsingOutcome::Unknown;
+    };
+
+    msg_parser_fn.try_from_msg(objects, msg)
 }
 
 /// Decode a Wayland request from a [WlRawMsg], returning the type-erased result, or
@@ -228,15 +217,15 @@ pub fn decode_request<'obj, 'msg>(
     objects: &'obj WlObjects,
     msg: &'msg WlRawMsg,
 ) -> WaylandProtocolParsingOutcome<Box<dyn AnyWlParsedMessage<'msg> + 'msg>> {
-    for p in WL_EVENT_REQUEST_PARSERS.1.iter() {
-        if let WaylandProtocolParsingOutcome::Ok(e) =
-            bubble_malformed!(p.try_from_msg(objects, msg))
-        {
-            return WaylandProtocolParsingOutcome::Ok(e);
-        }
-    }
+    let Some(obj_type) = objects.lookup_object(msg.obj_id) else {
+        return WaylandProtocolParsingOutcome::Unknown;
+    };
 
-    WaylandProtocolParsingOutcome::Unknown
+    let Some(msg_parser_fn) = WL_EVENT_REQUEST_PARSERS.1.get(&(obj_type, msg.opcode)) else {
+        return WaylandProtocolParsingOutcome::Unknown;
+    };
+
+    msg_parser_fn.try_from_msg(objects, msg)
 }
 
 /// Look up a known object type from its name to its Rust [WlObjectType] representation
