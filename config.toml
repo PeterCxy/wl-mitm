@@ -36,6 +36,9 @@ allowed_globals = [
 #
 # The first and second arguments to this program will be the interface
 # and request name, respectively.
+#
+# The number of arguments may change in the future, but the _last_ argument
+# is always a JSON-serialized representation of the request's arguments.
 ask_cmd = "contrib/ask-bemenu.sh"
 
 # A list of requests we'd like to filter

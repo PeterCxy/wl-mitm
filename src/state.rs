@@ -141,12 +141,14 @@ impl WlMitmState {
                                 msg.self_object_type().interface(),
                                 msg.self_msg_name()
                             );
-                            if let Ok(status) = tokio::process::Command::new(ask_cmd)
-                                .arg(msg.self_object_type().interface())
-                                .arg(msg.self_msg_name())
-                                .status()
-                                .await
-                            {
+
+                            let mut cmd = tokio::process::Command::new(ask_cmd);
+                            cmd.arg(msg.self_object_type().interface());
+                            cmd.arg(msg.self_msg_name());
+                            // Note: the _last_ argument is always the JSON representation!
+                            cmd.arg(msg.to_json());
+
+                            if let Ok(status) = cmd.status().await {
                                 if !status.success() {
                                     warn!(
                                         "Blocked {}::{} because of return status {}",

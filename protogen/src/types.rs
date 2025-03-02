@@ -98,10 +98,22 @@ impl WlMsg {
         let parser_fn_name = format_ident!("{}", self.parser_fn_name());
 
         // Build all field names and their corresponding Rust type identifiers
-        let (field_names, field_types): (Vec<_>, Vec<_>) = self
+        let (field_names, (field_types, field_attrs)): (Vec<_>, (Vec<_>, Vec<_>)) = self
             .args
             .iter()
-            .map(|(name, tt)| (format_ident!("{name}"), tt.to_rust_type()))
+            .map(|(name, tt)| {
+                (
+                    format_ident!("{name}"),
+                    (
+                        tt.to_rust_type(),
+                        match tt {
+                            // Can't serialize fds!
+                            WlArgType::Fd => quote! { #[serde(skip)] },
+                            _ => quote! {},
+                        },
+                    ),
+                )
+            })
             .unzip();
 
         // Generate code to include in the parser for every field
@@ -143,10 +155,12 @@ impl WlMsg {
 
         quote! {
             #[allow(unused)]
+            #[derive(Serialize)]
             pub struct #struct_name<'a> {
+                #[serde(skip)]
                 _phantom: std::marker::PhantomData<&'a ()>,
                 obj_id: u32,
-                #( pub #field_names: #field_types, )*
+                #( #field_attrs pub #field_names: #field_types, )*
             }
 
             impl<'a> __private::WlParsedMessagePrivate for #struct_name<'a> {}
@@ -202,6 +216,10 @@ impl WlMsg {
 
                 fn known_objects_created(&self) -> Option<Vec<(u32, WlObjectType)>> {
                     #known_objects_created
+                }
+
+                fn to_json(&self) -> String {
+                    serde_json::to_string(self).unwrap()
                 }
             }
 

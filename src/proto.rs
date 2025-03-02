@@ -3,6 +3,7 @@
 use std::{collections::HashMap, sync::LazyLock};
 
 use byteorder::ByteOrder;
+use serde_derive::Serialize;
 
 use crate::{
     codec::WlRawMsg,
@@ -114,6 +115,9 @@ pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
     /// widely-used message with that capability is [WlRegistryBindRequest],
     /// which is already handled separately on its own.
     fn known_objects_created(&self) -> Option<Vec<(u32, WlObjectType)>>;
+
+    /// Serialize this message into a JSON string, for use with ask scripts
+    fn to_json(&self) -> String;
 }
 
 /// A version of [WlParsedMessage] that supports downcasting. By implementing this
