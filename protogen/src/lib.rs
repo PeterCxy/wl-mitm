@@ -7,22 +7,39 @@ use types::{WlArgType, WlInterface, WlMsg, WlMsgType};
 
 mod types;
 
-pub fn generate_from_dir(p: impl AsRef<Path>) -> String {
-    let (gen_code, (add_parsers_fn, add_object_types_fn)): (Vec<_>, (Vec<_>, Vec<_>)) =
-        std::fs::read_dir(p)
-            .expect("cannot open directory")
-            .filter_map(|f| f.ok())
-            .filter(|f| {
-                f.file_name()
-                    .to_str()
-                    .expect("utf8 encoding error")
-                    .ends_with(".xml")
-            })
-            .map(|f| generate_from_xml_file(f.path()))
-            .unzip();
+pub fn generate_from_dir(out_dir: impl AsRef<Path>, p: impl AsRef<Path>) {
+    let proto_mods_dir = out_dir.as_ref().join("proto_generated");
+    std::fs::remove_dir_all(&proto_mods_dir).ok();
+    std::fs::create_dir(&proto_mods_dir).expect("Unable to create proto_generated");
 
-    quote! {
-        #( #gen_code )*
+    let ((file_names, gen_code), (add_parsers_fn, add_object_types_fn)): (
+        (Vec<_>, Vec<_>),
+        (Vec<_>, Vec<_>),
+    ) = std::fs::read_dir(p)
+        .expect("cannot open directory")
+        .filter_map(|f| f.ok())
+        .filter(|f| {
+            f.file_name()
+                .to_str()
+                .expect("utf8 encoding error")
+                .ends_with(".xml")
+        })
+        .map(|f| generate_from_xml_file(f.path()))
+        .unzip();
+
+    for (i, file_name) in file_names.iter().enumerate() {
+        let rs_file = proto_mods_dir.join(format!("{}.rs", file_name));
+        std::fs::write(&rs_file, gen_code[i].to_string()).expect("unable to write generated file");
+        std::process::Command::new("rustfmt")
+            .arg(rs_file.to_str().expect("utf8 error"))
+            .output()
+            .ok();
+    }
+
+    //let file_name_ident: Vec<_> = file_names.iter().map(|name| format_ident!("{name}")).collect();
+
+    let main_gen = quote! {
+        #( include!(concat!(env!("OUT_DIR"), "/proto_generated/", #file_names, ".rs")); )*
 
         fn wl_init_parsers(event_parsers: &mut Vec<&'static dyn WlMsgParserFn>, request_parsers: &mut Vec<&'static dyn WlMsgParserFn>) {
             #( #add_parsers_fn(event_parsers, request_parsers); )*
@@ -31,11 +48,20 @@ pub fn generate_from_dir(p: impl AsRef<Path>) -> String {
         fn wl_init_known_types(object_types: &mut HashMap<&'static str, WlObjectType>) {
             #( #add_object_types_fn(object_types); )*
         }
-    }
-    .to_string()
+    }.to_string();
+
+    let main_gen_file = out_dir.as_ref().join("proto_generated.rs");
+    std::fs::write(&main_gen_file, main_gen).expect("unable to write proto_generated.rs");
+
+    std::process::Command::new("rustfmt")
+        .arg(main_gen_file.to_str().expect("utf8 error"))
+        .output()
+        .ok();
 }
 
-fn generate_from_xml_file(p: impl AsRef<Path>) -> (proc_macro2::TokenStream, (Ident, Ident)) {
+fn generate_from_xml_file(
+    p: impl AsRef<Path>,
+) -> ((String, proc_macro2::TokenStream), (Ident, Ident)) {
     let file_name = p.as_ref().file_stem().expect("No file name provided");
     let xml_str = std::fs::read_to_string(&p).expect("Unable to read from file");
     let mut reader = quick_xml::Reader::from_str(&xml_str);
@@ -99,17 +125,22 @@ fn generate_from_xml_file(p: impl AsRef<Path>) -> (proc_macro2::TokenStream, (Id
     let ret_code = quote! {
         #( #code )*
 
+        #[allow(unused)]
         fn #add_parsers_fn(event_parsers: &mut Vec<&'static dyn WlMsgParserFn>, request_parsers: &mut Vec<&'static dyn WlMsgParserFn>) {
             #( event_parsers.push(&#event_parsers); )*
             #( request_parsers.push(&#request_parsers); )*
         }
 
+        #[allow(unused)]
         fn #add_object_types_fn(object_types: &mut HashMap<&'static str, WlObjectType>) {
             #( object_types.insert(#known_interface_names, #known_interface_consts); )*
         }
     };
 
-    (ret_code, (add_parsers_fn, add_object_types_fn))
+    (
+        (file_name_snake, ret_code),
+        (add_parsers_fn, add_object_types_fn),
+    )
 }
 
 fn handle_interface(
@@ -236,6 +267,14 @@ fn handle_request_or_event(
                                 .expect("utf8 encoding error")
                                 .to_string(),
                         );
+                    }
+                }
+
+                if let Some(ref mut name) = name {
+                    if name == "type" {
+                        *name = "_type".to_string();
+                    } else if name == "msg" {
+                        *name = "_msg".to_string();
                     }
                 }
 
