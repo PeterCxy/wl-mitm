@@ -65,29 +65,14 @@ impl WlMitmState {
     pub async fn on_c2s_request(&mut self, raw_msg: &WlRawMsg) -> (usize, bool) {
         let msg = match crate::proto::decode_request(&self.objects, raw_msg) {
             WaylandProtocolParsingOutcome::Ok(msg) => msg,
-            WaylandProtocolParsingOutcome::MalformedMessage => {
-                // Kill all malformed messages
-                // Note that they are different from messages whose object / message types are unknown
+            _ => {
                 error!(
                     obj_id = raw_msg.obj_id,
                     opcode = raw_msg.opcode,
                     num_fds = raw_msg.fds.len(),
-                    "Malformed request"
+                    "Malformed or unknown request"
                 );
                 return (0, false);
-            }
-            _ => {
-                // TODO: due to fds, we can't expect to be able to pass through unknown messages.
-                // Load all sensible Wayland extensions and remove this condition.
-                // Pass through all unknown messages -- they could be from a Wayland protocol we haven't
-                // been built against!
-                // Note that this won't pass through messages for globals we haven't allowed:
-                // to use a global, a client must first _bind_ that global, and _that_ message is intercepted
-                // below. There, we match based on the textual representation of the interface, so it works
-                // even for globals from protocols we don't know.
-                // It does mean we can't filter against methods that create more objects _from_ that
-                // global, though.
-                return (0, true);
             }
         };
 
@@ -100,28 +85,28 @@ impl WlMitmState {
             // Note that because we've removed said global from the registry, a client _SHOULD NOT_ be attempting
             // to bind to it; if it does, it's likely a malicious client!
             // So, we simply remove these messages from the stream, which will cause the Wayland server to error out.
-            let Some(interface) = self.objects.lookup_global(msg.name) else {
+            let Some(obj_type) = self.objects.lookup_global(msg.name) else {
                 return (0, false);
             };
 
-            if interface != msg.id_interface_name {
+            if obj_type.interface() != msg.id_interface_name {
                 error!(
                     "Client binding to interface {}, but the interface name {} should correspond to {}",
-                    msg.id_interface_name, msg.name, interface
+                    msg.id_interface_name,
+                    msg.name,
+                    obj_type.interface()
                 );
                 return (0, false);
             }
 
             info!(
-                interface = interface,
+                interface = obj_type.interface(),
                 version = msg.id_interface_version,
                 obj_id = msg.id,
                 "Client binding interface"
             );
 
-            if let Some(t) = crate::proto::lookup_known_object_type(interface) {
-                self.objects.record_object(t, msg.id);
-            }
+            self.objects.record_object(obj_type, msg.id);
         }
 
         // Handle requests configured to be filtered
@@ -192,17 +177,14 @@ impl WlMitmState {
     pub async fn on_s2c_event(&mut self, raw_msg: &WlRawMsg) -> (usize, bool) {
         let msg = match crate::proto::decode_event(&self.objects, raw_msg) {
             WaylandProtocolParsingOutcome::Ok(msg) => msg,
-            WaylandProtocolParsingOutcome::MalformedMessage => {
+            _ => {
                 error!(
                     obj_id = raw_msg.obj_id,
                     opcode = raw_msg.opcode,
                     num_fds = raw_msg.fds.len(),
-                    "Malformed event"
+                    "Malformed or unknown event"
                 );
                 return (0, false);
-            }
-            _ => {
-                return (0, true);
             }
         };
 
@@ -219,6 +201,15 @@ impl WlMitmState {
                 "got global"
             );
 
+            let Some(obj_type) = crate::proto::lookup_known_object_type(msg.interface) else {
+                error!(
+                    interface = msg.interface,
+                    "Unknown interface removed! If required, please include its XML when building wl-mitm!"
+                );
+
+                return (0, false);
+            };
+
             // To block entire extensions, we just need to filter out their announced global objects.
             if !self.config.filter.allowed_globals.contains(msg.interface) {
                 info!(
@@ -230,7 +221,7 @@ impl WlMitmState {
 
             // Else, record the global object. These are the only ones we're ever going to allow through.
             // We block bind requests on any interface that's not recorded here.
-            self.objects.record_global(msg.name, msg.interface);
+            self.objects.record_global(msg.name, obj_type);
         } else if let Some(msg) = msg.downcast_ref::<WlRegistryGlobalRemoveEvent>() {
             // Remove globals that the server has removed
             self.objects.remove_global(msg.name);

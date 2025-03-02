@@ -9,8 +9,8 @@ listen = "wayland-2"
 [filter]
 # A list of Wayland global singleton objects that's allowed
 # Each of them generally correspond to an implemented protocol
-# For a list of these, see <https://wayland.app>
-# Note that not every object is exposed and created as a global.
+# Note that we can only allow globals we have a corresponding XML
+# file under proto/ for.
 allowed_globals = [
     # Base wl protocols
     "wl_compositor",

@@ -42,7 +42,8 @@ impl Eq for WlObjectType {}
 
 pub struct WlObjects {
     objects: HashMap<u32, WlObjectType>,
-    global_names: HashMap<u32, String>,
+    /// u32 "name"s of globals mapped to their object types
+    global_names: HashMap<u32, WlObjectType>,
 }
 
 impl WlObjects {
@@ -68,12 +69,12 @@ impl WlObjects {
         self.objects.remove(&id);
     }
 
-    pub fn record_global(&mut self, name: u32, interface: &str) {
-        self.global_names.insert(name, interface.to_string());
+    pub fn record_global(&mut self, name: u32, interface: WlObjectType) {
+        self.global_names.insert(name, interface);
     }
 
-    pub fn lookup_global(&self, name: u32) -> Option<&str> {
-        self.global_names.get(&name).map(|s| s.as_str())
+    pub fn lookup_global(&self, name: u32) -> Option<WlObjectType> {
+        self.global_names.get(&name).copied()
     }
 
     pub fn remove_global(&mut self, name: u32) {
