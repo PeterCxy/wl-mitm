@@ -22,4 +22,36 @@ allowed_globals = [
     "zxdg_decoration_manager_v1",
     # Linux DMA-BUF
     "zwp_linux_dmabuf_v1",
+    # Clipboard manager from wlroots, used for the filter example below.
+    "zwlr_data_control_manager_v1"
 ]
+
+# A command to invoke when asking the user to permit or deny a
+# Wayland request (configured via [[filter.requests]] below).
+#
+# A status code 0 indicates the request is allowed. Else, it is
+# blocked.
+#
+# If missing, `action = "ask"` will act like `action = "block"`.
+#
+# The first and second arguments to this program will be the interface
+# and request name, respectively.
+ask_cmd = "contrib/ask-bemenu.sh"
+
+# A list of requests we'd like to filter
+[[filter.requests]]
+# The interface name in question
+interface = "zwlr_data_control_offer_v1"
+# List of requests to apply this action to
+# In this case, the "receive" request is the one where the client
+# asks the server to sent over clipboard data
+requests = [ "receive" ]
+# What to do? "block" to block it outright; "ask" to invoke
+# `ask_cmd` first.
+action = "ask"
+
+[[filter.requests]]
+interface = "zwlr_data_control_device_v1"
+# These are the requests used by clients to set the clipboard content
+requests = [ "set_selection", "set_primary_selection" ]
+action = "ask"

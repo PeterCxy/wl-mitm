@@ -341,7 +341,11 @@ impl WlArgType {
                         return WaylandProtocolParsingOutcome::MalformedMessage;
                     };
 
-                    pos += len;
+                    if len % 4 == 0 {
+                        pos += len;
+                    } else {
+                        pos += len + (4 - len % 4);
+                    }
 
                     #var_name
                 };
@@ -361,7 +365,12 @@ impl WlArgType {
                     }
 
                     let #var_name = &payload[pos..pos + len];
-                    pos += len;
+
+                    if len % 4 == 0 {
+                        pos += len;
+                    } else {
+                        pos += len + (4 - len % 4);
+                    }
 
                     #var_name
                 };

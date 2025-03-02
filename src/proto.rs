@@ -54,7 +54,7 @@ impl<T> WaylandProtocolParsingOutcome<T> {
 
 /// Internal module used to seal the [WlParsedMessage] trait
 mod __private {
-    pub(super) trait WlParsedMessagePrivate {}
+    pub(super) trait WlParsedMessagePrivate: Send {}
     pub(super) struct WlParsedMessagePrivateToken;
 }
 

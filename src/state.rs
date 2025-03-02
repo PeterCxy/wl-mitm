@@ -1,10 +1,10 @@
 use std::sync::Arc;
 
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     codec::WlRawMsg,
-    config::Config,
+    config::{Config, WlFilterRequestAction},
     objects::WlObjects,
     proto::{
         AnyWlParsedMessage, WaylandProtocolParsingOutcome, WlDisplayDeleteIdEvent,
@@ -61,7 +61,7 @@ impl WlMitmState {
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn on_c2s_request(&mut self, raw_msg: &WlRawMsg) -> bool {
+    pub async fn on_c2s_request(&mut self, raw_msg: &WlRawMsg) -> bool {
         let msg = match crate::proto::decode_request(&self.objects, raw_msg) {
             WaylandProtocolParsingOutcome::Ok(msg) => msg,
             WaylandProtocolParsingOutcome::MalformedMessage => {
@@ -111,6 +111,7 @@ impl WlMitmState {
 
             info!(
                 interface = interface,
+                version = msg.id_interface_version,
                 obj_id = msg.id,
                 "Client binding interface"
             );
@@ -120,11 +121,70 @@ impl WlMitmState {
             }
         }
 
+        // Handle requests configured to be filtered
+        if let Some(filtered_requests) = self
+            .config
+            .filter
+            .requests
+            .get(msg.self_object_type().interface())
+        {
+            if let Some(filtered) = filtered_requests
+                .iter()
+                .find(|f| f.requests.contains(msg.self_msg_name()))
+            {
+                match filtered.action {
+                    WlFilterRequestAction::Ask => {
+                        if let Some(ref ask_cmd) = self.config.filter.ask_cmd {
+                            info!(
+                                ask_cmd = ask_cmd,
+                                "Running ask command for {}::{}",
+                                msg.self_object_type().interface(),
+                                msg.self_msg_name()
+                            );
+                            if let Ok(status) = tokio::process::Command::new(ask_cmd)
+                                .arg(msg.self_object_type().interface())
+                                .arg(msg.self_msg_name())
+                                .status()
+                                .await
+                            {
+                                if !status.success() {
+                                    warn!(
+                                        "Blocked {}::{} because of return status {}",
+                                        msg.self_object_type().interface(),
+                                        msg.self_msg_name(),
+                                        status
+                                    );
+                                }
+
+                                return status.success();
+                            }
+                        }
+
+                        warn!(
+                            "Blocked {}::{} because of missing ask_cmd",
+                            msg.self_object_type().interface(),
+                            msg.self_msg_name()
+                        );
+                        return false;
+                    }
+                    WlFilterRequestAction::Block => {
+                        warn!(
+                            "Blocked {}::{}",
+                            msg.self_object_type().interface(),
+                            msg.self_msg_name()
+                        );
+                        // TODO: don't just return false, build an error event
+                        return false;
+                    }
+                }
+            }
+        }
+
         true
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn on_s2c_event(&mut self, raw_msg: &WlRawMsg) -> bool {
+    pub async fn on_s2c_event(&mut self, raw_msg: &WlRawMsg) -> bool {
         let msg = match crate::proto::decode_event(&self.objects, raw_msg) {
             WaylandProtocolParsingOutcome::Ok(msg) => msg,
             WaylandProtocolParsingOutcome::MalformedMessage => {

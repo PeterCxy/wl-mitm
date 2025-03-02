@@ -93,7 +93,7 @@ pub async fn handle_conn(
                     codec::DecoderOutcome::Decoded(wl_raw_msg) => {
                         debug!(obj_id = wl_raw_msg.obj_id, opcode = wl_raw_msg.opcode, num_fds = wl_raw_msg.fds.len(), "s2c event");
 
-                        if state.on_s2c_event(&wl_raw_msg) {
+                        if state.on_s2c_event(&wl_raw_msg).await {
                             downstream_write.queue_write(wl_raw_msg);
                         }
                     },
@@ -106,7 +106,7 @@ pub async fn handle_conn(
                     codec::DecoderOutcome::Decoded(wl_raw_msg) => {
                         debug!(obj_id = wl_raw_msg.obj_id, opcode = wl_raw_msg.opcode, num_fds = wl_raw_msg.fds.len(), "c2s request");
 
-                        if state.on_c2s_request(&wl_raw_msg) {
+                        if state.on_c2s_request(&wl_raw_msg).await {
                             upstream_write.queue_write(wl_raw_msg);
                         }
                     },

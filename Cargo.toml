@@ -16,7 +16,7 @@ nix = "0.29.0"
 sendfd = { version = "0.4", features = [ "tokio" ] }
 serde = "1.0.218"
 serde_derive = "1.0.218"
-tokio = { version = "1.43.0", features = [ "fs", "net", "rt", "rt-multi-thread", "macros", "io-util" ]}
+tokio = { version = "1.43.0", features = [ "fs", "net", "rt", "rt-multi-thread", "macros", "io-util", "process" ]}
 toml = "0.8.20"
 tracing = "0.1.41"
 tracing-subscriber = "0.3.19"
