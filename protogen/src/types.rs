@@ -116,6 +116,12 @@ impl WlMsg {
             })
             .unzip();
 
+        let num_consumed_fds = self
+            .args
+            .iter()
+            .filter(|(_, tt)| matches!(tt, WlArgType::Fd))
+            .count();
+
         // Generate code to include in the parser for every field
         let parser_code: Vec<_> = self
             .args
@@ -198,6 +204,7 @@ impl WlMsg {
                 fn try_from_msg_impl(msg: &crate::codec::WlRawMsg, _token: __private::WlParsedMessagePrivateToken) -> WaylandProtocolParsingOutcome<#struct_name> {
                     let payload = msg.payload();
                     let mut pos = 0usize;
+                    let mut pos_fds = 0usize;
                     #( #parser_code )*
                     WaylandProtocolParsingOutcome::Ok(#struct_name {
                         _phantom: std::marker::PhantomData,
@@ -220,6 +227,10 @@ impl WlMsg {
 
                 fn to_json(&self) -> String {
                     serde_json::to_string(self).unwrap()
+                }
+
+                fn num_consumed_fds(&self) -> usize {
+                    #num_consumed_fds
                 }
             }
 
@@ -394,11 +405,12 @@ impl WlArgType {
                 };
             },
             WlArgType::Fd => quote! {
-                if msg.fds.len() == 0 {
+                if msg.fds.len() < pos_fds + 1 {
                     return WaylandProtocolParsingOutcome::MalformedMessage;
                 }
 
-                let #var_name: std::os::fd::BorrowedFd<'_> = std::os::fd::AsFd::as_fd(&msg.fds[0]);
+                let #var_name: std::os::fd::BorrowedFd<'_> = std::os::fd::AsFd::as_fd(&msg.fds[pos_fds]);
+                pos_fds += 1;
             },
         }
     }

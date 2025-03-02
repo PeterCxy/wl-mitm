@@ -118,6 +118,10 @@ pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
 
     /// Serialize this message into a JSON string, for use with ask scripts
     fn to_json(&self) -> String;
+
+    /// How many fds have been consumed in parsing this message?
+    /// This is used to return any unused fds to the decoder.
+    fn num_consumed_fds(&self) -> usize;
 }
 
 /// A version of [WlParsedMessage] that supports downcasting. By implementing this

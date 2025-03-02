@@ -1,4 +1,4 @@
-use std::os::fd::OwnedFd;
+use std::{collections::VecDeque, os::fd::OwnedFd};
 
 use byteorder::{ByteOrder, NativeEndian};
 use bytes::{Bytes, BytesMut};
@@ -13,11 +13,18 @@ pub struct WlRawMsg {
     pub opcode: u16,
     // len bytes -- containing the header
     msg_buf: Bytes,
-    pub fds: Box<[OwnedFd]>,
+    /// All fds we have seen up until decoding this message frame
+    /// fds aren't guaranteed to be separated between messages; therefore, there
+    /// is no way for us to tell that all fds here belong to the current message
+    /// without actually loading the Wayland XML protocols.
+    ///
+    /// Instead, downstream parsers should return any unused fds back to the decoder
+    /// with [WlDecoder::return_unused_fds].
+    pub fds: Vec<OwnedFd>,
 }
 
 impl WlRawMsg {
-    pub fn try_decode(buf: &mut BytesMut, fds: &mut Vec<OwnedFd>) -> Option<WlRawMsg> {
+    pub fn try_decode(buf: &mut BytesMut, fds: &mut VecDeque<OwnedFd>) -> Option<WlRawMsg> {
         let buf_len = buf.len();
         // Not even a complete message header
         if buf_len < 8 {
@@ -36,14 +43,16 @@ impl WlRawMsg {
         let msg_buf = buf.split_to(msg_len as usize);
 
         let mut new_fds = Vec::with_capacity(fds.len());
-        new_fds.append(fds);
+        while let Some(fd) = fds.pop_front() {
+            new_fds.push(fd);
+        }
 
         Some(WlRawMsg {
             obj_id,
             len: msg_len as u16,
             opcode: opcode as u16,
             msg_buf: msg_buf.freeze(),
-            fds: new_fds.into_boxed_slice(),
+            fds: new_fds,
         })
     }
 
@@ -52,7 +61,7 @@ impl WlRawMsg {
     }
 
     pub fn into_parts(self) -> (Bytes, Box<[OwnedFd]>) {
-        (self.msg_buf, self.fds)
+        (self.msg_buf, self.fds.into_boxed_slice())
     }
 }
 
@@ -64,14 +73,25 @@ pub enum DecoderOutcome {
 
 pub struct WlDecoder {
     buf: BytesMut,
-    fds: Vec<OwnedFd>,
+    fds: VecDeque<OwnedFd>,
 }
 
 impl WlDecoder {
     pub fn new() -> WlDecoder {
         WlDecoder {
             buf: BytesMut::new(),
-            fds: Vec::new(),
+            fds: VecDeque::new(),
+        }
+    }
+
+    pub fn return_unused_fds(&mut self, msg: &mut WlRawMsg, num_consumed: usize) {
+        let mut unused = msg.fds.split_off(num_consumed);
+
+        // Add all unused vectors, in order, to the _front_ of our queue
+        // This means that we take one item from the _back_ of the unused
+        // chunk at a time and insert that to the _front_, to preserve order.
+        while let Some(fd) = unused.pop() {
+            self.fds.push_front(fd);
         }
     }
 
@@ -86,9 +106,9 @@ impl WlDecoder {
         }
     }
 
-    pub fn decode_after_read(&mut self, buf: &[u8], fds: &mut Vec<OwnedFd>) -> DecoderOutcome {
+    pub fn decode_after_read(&mut self, buf: &[u8], fds: Vec<OwnedFd>) -> DecoderOutcome {
         self.buf.extend_from_slice(&buf);
-        self.fds.append(fds);
+        self.fds.extend(fds.into_iter());
 
         match WlRawMsg::try_decode(&mut self.buf, &mut self.fds) {
             Some(res) => DecoderOutcome::Decoded(res),

@@ -60,8 +60,9 @@ impl WlMitmState {
         }
     }
 
+    /// Returns the number of fds consumed while parsing the message as a concrete Wayland type, and a verdict
     #[tracing::instrument(skip_all)]
-    pub async fn on_c2s_request(&mut self, raw_msg: &WlRawMsg) -> bool {
+    pub async fn on_c2s_request(&mut self, raw_msg: &WlRawMsg) -> (usize, bool) {
         let msg = match crate::proto::decode_request(&self.objects, raw_msg) {
             WaylandProtocolParsingOutcome::Ok(msg) => msg,
             WaylandProtocolParsingOutcome::MalformedMessage => {
@@ -73,9 +74,11 @@ impl WlMitmState {
                     num_fds = raw_msg.fds.len(),
                     "Malformed request"
                 );
-                return false;
+                return (0, false);
             }
             _ => {
+                // TODO: due to fds, we can't expect to be able to pass through unknown messages.
+                // Load all sensible Wayland extensions and remove this condition.
                 // Pass through all unknown messages -- they could be from a Wayland protocol we haven't
                 // been built against!
                 // Note that this won't pass through messages for globals we haven't allowed:
@@ -84,7 +87,7 @@ impl WlMitmState {
                 // even for globals from protocols we don't know.
                 // It does mean we can't filter against methods that create more objects _from_ that
                 // global, though.
-                return true;
+                return (0, true);
             }
         };
 
@@ -98,7 +101,7 @@ impl WlMitmState {
             // to bind to it; if it does, it's likely a malicious client!
             // So, we simply remove these messages from the stream, which will cause the Wayland server to error out.
             let Some(interface) = self.objects.lookup_global(msg.name) else {
-                return false;
+                return (0, false);
             };
 
             if interface != msg.id_interface_name {
@@ -106,7 +109,7 @@ impl WlMitmState {
                     "Client binding to interface {}, but the interface name {} should correspond to {}",
                     msg.id_interface_name, msg.name, interface
                 );
-                return false;
+                return (0, false);
             }
 
             info!(
@@ -158,7 +161,7 @@ impl WlMitmState {
                                     );
                                 }
 
-                                return status.success();
+                                return (msg.num_consumed_fds(), status.success());
                             }
                         }
 
@@ -167,7 +170,7 @@ impl WlMitmState {
                             msg.self_object_type().interface(),
                             msg.self_msg_name()
                         );
-                        return false;
+                        return (msg.num_consumed_fds(), false);
                     }
                     WlFilterRequestAction::Block => {
                         warn!(
@@ -176,17 +179,17 @@ impl WlMitmState {
                             msg.self_msg_name()
                         );
                         // TODO: don't just return false, build an error event
-                        return false;
+                        return (msg.num_consumed_fds(), false);
                     }
                 }
             }
         }
 
-        true
+        (msg.num_consumed_fds(), true)
     }
 
     #[tracing::instrument(skip_all)]
-    pub async fn on_s2c_event(&mut self, raw_msg: &WlRawMsg) -> bool {
+    pub async fn on_s2c_event(&mut self, raw_msg: &WlRawMsg) -> (usize, bool) {
         let msg = match crate::proto::decode_event(&self.objects, raw_msg) {
             WaylandProtocolParsingOutcome::Ok(msg) => msg,
             WaylandProtocolParsingOutcome::MalformedMessage => {
@@ -196,10 +199,10 @@ impl WlMitmState {
                     num_fds = raw_msg.fds.len(),
                     "Malformed event"
                 );
-                return false;
+                return (0, false);
             }
             _ => {
-                return true;
+                return (0, true);
             }
         };
 
@@ -222,7 +225,7 @@ impl WlMitmState {
                     interface = msg.interface,
                     "Removing interface from published globals"
                 );
-                return false;
+                return (0, false);
             }
 
             // Else, record the global object. These are the only ones we're ever going to allow through.
@@ -236,6 +239,6 @@ impl WlMitmState {
             self.objects.remove_object(msg.id);
         }
 
-        true
+        (msg.num_consumed_fds(), true)
     }
 }

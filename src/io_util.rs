@@ -25,6 +25,10 @@ impl<'a> WlMsgReader<'a> {
         }
     }
 
+    pub fn return_unused_fds(&mut self, msg: &mut WlRawMsg, num_consumed: usize) {
+        self.decoder.return_unused_fds(msg, num_consumed);
+    }
+
     pub async fn read(&mut self) -> io::Result<DecoderOutcome> {
         if let Some(DecoderOutcome::Decoded(msg)) = self.decoder.decode_buf() {
             return Ok(DecoderOutcome::Decoded(msg));
@@ -50,7 +54,7 @@ impl<'a> WlMsgReader<'a> {
 
             return Ok(self
                 .decoder
-                .decode_after_read(&tmp_buf[0..read_bytes], &mut fd_vec));
+                .decode_after_read(&tmp_buf[0..read_bytes], fd_vec));
         }
     }
 }

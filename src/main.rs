@@ -90,10 +90,13 @@ pub async fn handle_conn(
         tokio::select! {
             s2c_msg = upstream_read.read() => {
                 match s2c_msg? {
-                    codec::DecoderOutcome::Decoded(wl_raw_msg) => {
+                    codec::DecoderOutcome::Decoded(mut wl_raw_msg) => {
                         debug!(obj_id = wl_raw_msg.obj_id, opcode = wl_raw_msg.opcode, num_fds = wl_raw_msg.fds.len(), "s2c event");
 
-                        if state.on_s2c_event(&wl_raw_msg).await {
+                        let (num_consumed_fds, verdict) = state.on_s2c_event(&wl_raw_msg).await;
+                        upstream_read.return_unused_fds(&mut wl_raw_msg, num_consumed_fds);
+
+                        if verdict {
                             downstream_write.queue_write(wl_raw_msg);
                         }
                     },
@@ -103,10 +106,13 @@ pub async fn handle_conn(
             },
             c2s_msg = downstream_read.read() => {
                 match c2s_msg? {
-                    codec::DecoderOutcome::Decoded(wl_raw_msg) => {
+                    codec::DecoderOutcome::Decoded(mut wl_raw_msg) => {
                         debug!(obj_id = wl_raw_msg.obj_id, opcode = wl_raw_msg.opcode, num_fds = wl_raw_msg.fds.len(), "c2s request");
 
-                        if state.on_c2s_request(&wl_raw_msg).await {
+                        let (num_consumed_fds, verdict) = state.on_c2s_request(&wl_raw_msg).await;
+                        downstream_read.return_unused_fds(&mut wl_raw_msg, num_consumed_fds);
+
+                        if verdict {
                             upstream_write.queue_write(wl_raw_msg);
                         }
                     },
