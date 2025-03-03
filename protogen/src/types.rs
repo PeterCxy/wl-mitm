@@ -364,21 +364,25 @@ impl WlArgType {
 
                     pos += 4;
 
-                    if payload.len() < pos + len {
-                        return crate::proto::WaylandProtocolParsingOutcome::MalformedMessage;
-                    }
-
-                    let Ok(#var_name) = std::str::from_utf8(&payload[pos..pos + len - 1]) else {
-                        return crate::proto::WaylandProtocolParsingOutcome::MalformedMessage;
-                    };
-
-                    if len % 4 == 0 {
-                        pos += len;
+                    if len == 0 {
+                        ""
                     } else {
-                        pos += len + (4 - len % 4);
-                    }
+                        if payload.len() < pos + len {
+                            return crate::proto::WaylandProtocolParsingOutcome::MalformedMessage;
+                        }
 
-                    #var_name
+                        let Ok(#var_name) = std::str::from_utf8(&payload[pos..pos + len - 1]) else {
+                            return crate::proto::WaylandProtocolParsingOutcome::MalformedMessage;
+                        };
+
+                        if len % 4 == 0 {
+                            pos += len;
+                        } else {
+                            pos += len + (4 - len % 4);
+                        }
+
+                        #var_name
+                    }
                 };
             },
             WlArgType::Array => quote! {
@@ -389,21 +393,25 @@ impl WlArgType {
 
                     let len = byteorder::NativeEndian::read_u32(&payload[pos..pos + 4]) as usize;
 
-                    pos += 4;
-
-                    if payload.len() < pos + len {
-                        return crate::proto::WaylandProtocolParsingOutcome::MalformedMessage;
-                    }
-
-                    let #var_name = &payload[pos..pos + len];
-
-                    if len % 4 == 0 {
-                        pos += len;
+                    if len == 0 {
+                        &[]
                     } else {
-                        pos += len + (4 - len % 4);
-                    }
+                        pos += 4;
 
-                    #var_name
+                        if payload.len() < pos + len {
+                            return crate::proto::WaylandProtocolParsingOutcome::MalformedMessage;
+                        }
+
+                        let #var_name = &payload[pos..pos + len];
+
+                        if len % 4 == 0 {
+                            pos += len;
+                        } else {
+                            pos += len + (4 - len % 4);
+                        }
+
+                        #var_name
+                    }
                 };
             },
             WlArgType::Fd => quote! {
