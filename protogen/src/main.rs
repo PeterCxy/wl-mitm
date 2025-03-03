@@ -38,6 +38,11 @@ pub fn generate_from_dir(out_dir: impl AsRef<Path>, p: impl AsRef<Path>) {
         .map(|f| generate_from_xml_file(f.path()))
         .unzip();
 
+    let file_name_idents = file_names.iter().map(|name| format_ident!("{name}"));
+    let file_relative_paths = file_names
+        .iter()
+        .map(|name| format!("../generated/proto_generated/{name}.rs"));
+
     for (i, file_name) in file_names.iter().enumerate() {
         let rs_file = proto_mods_dir.join(format!("{}.rs", file_name));
         std::fs::write(&rs_file, gen_code[i].to_string()).expect("unable to write generated file");
@@ -48,13 +53,16 @@ pub fn generate_from_dir(out_dir: impl AsRef<Path>, p: impl AsRef<Path>) {
     }
 
     let main_gen = quote! {
-        #( include!(concat!("../generated/proto_generated/", #file_names, ".rs")); )*
+        #( #[path = #file_relative_paths] mod #file_name_idents; pub use #file_name_idents::*; )*
 
-        fn wl_init_parsers(event_parsers: &mut HashMap<(WlObjectType, u16), &'static dyn WlMsgParserFn>, request_parsers: &mut HashMap<(WlObjectType, u16), &'static dyn WlMsgParserFn>) {
+        pub(super) fn wl_init_parsers(
+            event_parsers: &mut std::collections::HashMap<(crate::objects::WlObjectType, u16), &'static dyn crate::proto::WlMsgParserFn>,
+            request_parsers: &mut std::collections::HashMap<(crate::objects::WlObjectType, u16), &'static dyn crate::proto::WlMsgParserFn>
+        ) {
             #( #add_parsers_fn(event_parsers, request_parsers); )*
         }
 
-        fn wl_init_known_types(object_types: &mut HashMap<&'static str, WlObjectType>) {
+        pub(super) fn wl_init_known_types(object_types: &mut std::collections::HashMap<&'static str, crate::objects::WlObjectType>) {
             #( #add_object_types_fn(object_types); )*
         }
     }.to_string();
@@ -147,16 +155,26 @@ fn generate_from_xml_file(
     let add_object_types_fn = format_ident!("wl_init_known_types_{}", file_name_snake);
 
     let ret_code = quote! {
+        #[allow(unused)]
+        use crate::proto::WlParsedMessage;
+        #[allow(unused)]
+        use byteorder::ByteOrder;
+        #[allow(unused)]
+        use serde_derive::Serialize;
+
         #( #code )*
 
         #[allow(unused)]
-        fn #add_parsers_fn(event_parsers: &mut HashMap<(WlObjectType, u16), &'static dyn WlMsgParserFn>, request_parsers: &mut HashMap<(WlObjectType, u16), &'static dyn WlMsgParserFn>) {
+        pub(super) fn #add_parsers_fn(
+            event_parsers: &mut std::collections::HashMap<(crate::objects::WlObjectType, u16), &'static dyn crate::proto::WlMsgParserFn>,
+            request_parsers: &mut std::collections::HashMap<(crate::objects::WlObjectType, u16), &'static dyn crate::proto::WlMsgParserFn>
+        ) {
             #( event_parsers.insert((#event_interface_types, #event_opcodes), &#event_parsers); )*
             #( request_parsers.insert((#request_interface_types, #request_opcodes), &#request_parsers); )*
         }
 
         #[allow(unused)]
-        fn #add_object_types_fn(object_types: &mut HashMap<&'static str, WlObjectType>) {
+        pub(super) fn #add_object_types_fn(object_types: &mut std::collections::HashMap<&'static str, crate::objects::WlObjectType>) {
             #( object_types.insert(#known_interface_names, #known_interface_consts); )*
         }
     };

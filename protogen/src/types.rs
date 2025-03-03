@@ -32,9 +32,9 @@ impl WlInterface {
         quote! {
             struct #interface_type_id_name;
 
-            pub const #type_const_name: WlObjectType = WlObjectType::new(&#interface_type_id_name);
+            pub const #type_const_name: crate::objects::WlObjectType = crate::objects::WlObjectType::new(&#interface_type_id_name);
 
-            impl WlObjectTypeId for #interface_type_id_name {
+            impl crate::objects::WlObjectTypeId for #interface_type_id_name {
                 fn interface(&self) -> &'static str {
                     #interface_name_literal
                 }
@@ -148,7 +148,7 @@ impl WlMsg {
         let known_objects_created = if new_id_name.len() > 0 {
             quote! {
                 Some(vec![
-                    #( (self.#new_id_name, #new_id_type), )*
+                    #( (self.#new_id_name, crate::proto::#new_id_type), )*
                 ])
             }
         } else {
@@ -160,7 +160,7 @@ impl WlMsg {
         let is_destructor = self.is_destructor;
 
         quote! {
-            #[allow(unused)]
+            #[allow(unused, non_snake_case)]
             #[derive(Serialize)]
             pub struct #struct_name<'a> {
                 #[serde(skip)]
@@ -169,9 +169,9 @@ impl WlMsg {
                 #( #field_attrs pub #field_names: #field_types, )*
             }
 
-            impl<'a> __private::WlParsedMessagePrivate for #struct_name<'a> {}
+            impl<'a> crate::proto::__private::WlParsedMessagePrivate for #struct_name<'a> {}
 
-            impl<'a> WlParsedMessage<'a> for #struct_name<'a> {
+            impl<'a> crate::proto::WlParsedMessage<'a> for #struct_name<'a> {
                 fn opcode() -> u16 {
                     #opcode
                 }
@@ -180,33 +180,35 @@ impl WlMsg {
                     #opcode
                 }
 
-                fn object_type() -> WlObjectType {
-                    #interface_name_snake_upper
+                fn object_type() -> crate::objects::WlObjectType {
+                    crate::proto::#interface_name_snake_upper
                 }
 
-                fn self_object_type(&self) -> WlObjectType {
-                    #interface_name_snake_upper
+                fn self_object_type(&self) -> crate::objects::WlObjectType {
+                    crate::proto::#interface_name_snake_upper
                 }
 
-                fn msg_type() -> WlMsgType {
-                    WlMsgType::#msg_type
+                fn msg_type() -> crate::proto::WlMsgType {
+                    crate::proto::WlMsgType::#msg_type
                 }
 
-                fn self_msg_type(&self) -> WlMsgType {
-                    WlMsgType::#msg_type
+                fn self_msg_type(&self) -> crate::proto::WlMsgType {
+                    crate::proto::WlMsgType::#msg_type
                 }
 
                 fn self_msg_name(&self) -> &'static str {
                     #msg_name_snake
                 }
 
-                #[allow(unused, private_interfaces)]
-                fn try_from_msg_impl(msg: &crate::codec::WlRawMsg, _token: __private::WlParsedMessagePrivateToken) -> WaylandProtocolParsingOutcome<#struct_name> {
+                #[allow(unused, private_interfaces, non_snake_case)]
+                fn try_from_msg_impl(
+                    msg: &crate::codec::WlRawMsg, _token: crate::proto::__private::WlParsedMessagePrivateToken
+                ) -> crate::proto::WaylandProtocolParsingOutcome<#struct_name> {
                     let payload = msg.payload();
                     let mut pos = 0usize;
                     let mut pos_fds = 0usize;
                     #( #parser_code )*
-                    WaylandProtocolParsingOutcome::Ok(#struct_name {
+                    crate::proto::WaylandProtocolParsingOutcome::Ok(#struct_name {
                         _phantom: std::marker::PhantomData,
                         obj_id: msg.obj_id,
                         #( #field_names, )*
@@ -221,7 +223,7 @@ impl WlMsg {
                     #is_destructor
                 }
 
-                fn known_objects_created(&self) -> Option<Vec<(u32, WlObjectType)>> {
+                fn known_objects_created(&self) -> Option<Vec<(u32, crate::objects::WlObjectType)>> {
                     #known_objects_created
                 }
 
@@ -234,16 +236,16 @@ impl WlMsg {
                 }
             }
 
-            unsafe impl<'a> AnyWlParsedMessage<'a> for #struct_name<'a> {}
+            unsafe impl<'a> crate::proto::AnyWlParsedMessage<'a> for #struct_name<'a> {}
 
             pub struct #parser_fn_name;
 
-            impl WlMsgParserFn for #parser_fn_name {
+            impl crate::proto::WlMsgParserFn for #parser_fn_name {
                 fn try_from_msg<'obj, 'msg>(
                     &self,
-                    objects: &'obj WlObjects,
-                    msg: &'msg WlRawMsg,
-                ) -> WaylandProtocolParsingOutcome<Box<dyn AnyWlParsedMessage<'msg> + 'msg>> {
+                    objects: &'obj crate::proto::WlObjects,
+                    msg: &'msg crate::codec::WlRawMsg,
+                ) -> crate::proto::WaylandProtocolParsingOutcome<Box<dyn crate::proto::AnyWlParsedMessage<'msg> + 'msg>> {
                     #struct_name::try_from_msg(objects, msg).map(|r| Box::new(r) as Box<_>)
                 }
             }
@@ -327,7 +329,7 @@ impl WlArgType {
         match self {
             WlArgType::Int => quote! {
                 if payload.len() < pos + 4 {
-                    return WaylandProtocolParsingOutcome::MalformedMessage;
+                    return crate::proto::WaylandProtocolParsingOutcome::MalformedMessage;
                 }
 
                 let #var_name: i32 = byteorder::NativeEndian::read_i32(&payload[pos..pos + 4]);
@@ -336,7 +338,7 @@ impl WlArgType {
             },
             WlArgType::Uint | WlArgType::Object | WlArgType::NewId(_) | WlArgType::Enum => quote! {
                 if payload.len() < pos + 4 {
-                    return WaylandProtocolParsingOutcome::MalformedMessage;
+                    return crate::proto::WaylandProtocolParsingOutcome::MalformedMessage;
                 }
 
                 let #var_name: u32 = byteorder::NativeEndian::read_u32(&payload[pos..pos + 4]);
@@ -345,7 +347,7 @@ impl WlArgType {
             },
             WlArgType::Fixed => quote! {
                 if payload.len() < pos + 4 {
-                    return WaylandProtocolParsingOutcome::MalformedMessage;
+                    return crate::proto::WaylandProtocolParsingOutcome::MalformedMessage;
                 }
 
                 let #var_name = fixed::types::I24F8::from_bits(byteorder::NativeEndian::read_i32(&payload[pos..pos + 4]));
@@ -355,7 +357,7 @@ impl WlArgType {
             WlArgType::String => quote! {
                 let #var_name: &str = {
                     if payload.len() < pos + 4 {
-                        return WaylandProtocolParsingOutcome::MalformedMessage;
+                        return crate::proto::WaylandProtocolParsingOutcome::MalformedMessage;
                     }
 
                     let len = byteorder::NativeEndian::read_u32(&payload[pos..pos + 4]) as usize;
@@ -363,11 +365,11 @@ impl WlArgType {
                     pos += 4;
 
                     if payload.len() < pos + len {
-                        return WaylandProtocolParsingOutcome::MalformedMessage;
+                        return crate::proto::WaylandProtocolParsingOutcome::MalformedMessage;
                     }
 
                     let Ok(#var_name) = std::str::from_utf8(&payload[pos..pos + len - 1]) else {
-                        return WaylandProtocolParsingOutcome::MalformedMessage;
+                        return crate::proto::WaylandProtocolParsingOutcome::MalformedMessage;
                     };
 
                     if len % 4 == 0 {
@@ -382,7 +384,7 @@ impl WlArgType {
             WlArgType::Array => quote! {
                 let #var_name: &[u8] = {
                     if payload.len() < pos + 4 {
-                        return WaylandProtocolParsingOutcome::MalformedMessage;
+                        return crate::proto::WaylandProtocolParsingOutcome::MalformedMessage;
                     }
 
                     let len = byteorder::NativeEndian::read_u32(&payload[pos..pos + 4]) as usize;
@@ -390,7 +392,7 @@ impl WlArgType {
                     pos += 4;
 
                     if payload.len() < pos + len {
-                        return WaylandProtocolParsingOutcome::MalformedMessage;
+                        return crate::proto::WaylandProtocolParsingOutcome::MalformedMessage;
                     }
 
                     let #var_name = &payload[pos..pos + len];
@@ -406,7 +408,7 @@ impl WlArgType {
             },
             WlArgType::Fd => quote! {
                 if msg.fds.len() < pos_fds + 1 {
-                    return WaylandProtocolParsingOutcome::MalformedMessage;
+                    return crate::proto::WaylandProtocolParsingOutcome::MalformedMessage;
                 }
 
                 let #var_name: std::os::fd::BorrowedFd<'_> = std::os::fd::AsFd::as_fd(&msg.fds[pos_fds]);
