@@ -640,7 +640,6 @@ dependencies = [
  "bytes",
  "fixed",
  "nix",
- "protogen",
  "sendfd",
  "serde",
  "serde_derive",

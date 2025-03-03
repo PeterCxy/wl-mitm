@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::{env, path::Path};
 
 use quick_xml::events::Event;
 use quote::{format_ident, quote};
@@ -6,6 +6,17 @@ use syn::Ident;
 use types::{WlArgType, WlInterface, WlMsg, WlMsgType};
 
 mod types;
+
+pub fn main() {
+    let proto_path = env::current_dir()
+        .expect("current dir undefined")
+        .join("proto");
+    let generated_path = env::current_dir()
+        .expect("current dir undefined")
+        .join("generated");
+    std::fs::create_dir(&generated_path).ok();
+    generate_from_dir(&generated_path, &proto_path);
+}
 
 pub fn generate_from_dir(out_dir: impl AsRef<Path>, p: impl AsRef<Path>) {
     let proto_mods_dir = out_dir.as_ref().join("proto_generated");
@@ -36,10 +47,8 @@ pub fn generate_from_dir(out_dir: impl AsRef<Path>, p: impl AsRef<Path>) {
             .ok();
     }
 
-    //let file_name_ident: Vec<_> = file_names.iter().map(|name| format_ident!("{name}")).collect();
-
     let main_gen = quote! {
-        #( include!(concat!(env!("OUT_DIR"), "/proto_generated/", #file_names, ".rs")); )*
+        #( include!(concat!("../generated/proto_generated/", #file_names, ".rs")); )*
 
         fn wl_init_parsers(event_parsers: &mut HashMap<(WlObjectType, u16), &'static dyn WlMsgParserFn>, request_parsers: &mut HashMap<(WlObjectType, u16), &'static dyn WlMsgParserFn>) {
             #( #add_parsers_fn(event_parsers, request_parsers); )*
