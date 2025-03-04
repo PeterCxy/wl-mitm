@@ -12,6 +12,52 @@ use crate::{
     },
 };
 
+/// What to do for a message?
+pub enum WlMitmVerdict {
+    /// This message is allowed. Pass it through to the opposite end.
+    Allowed,
+    /// This message is filtered.
+    /// TODO: We should probably construct a proper error response
+    Filtered,
+    /// Terminate this entire session. Something is off.
+    Terminate,
+}
+
+impl Default for WlMitmVerdict {
+    fn default() -> Self {
+        WlMitmVerdict::Terminate
+    }
+}
+
+/// Result returned by [WlMitmState] when handling messages.
+/// It's a pair of (num_consumed_fds, verdict).
+///
+/// We need to return back unused fds from the [WlRawMsg], which
+/// is why this has to be returned from here.
+#[derive(Default)]
+pub struct WlMitmOutcome(pub usize, pub WlMitmVerdict);
+
+impl WlMitmOutcome {
+    fn set_consumed_fds(&mut self, consumed_fds: usize) {
+        self.0 = consumed_fds;
+    }
+
+    fn allowed(mut self) -> Self {
+        self.1 = WlMitmVerdict::Allowed;
+        self
+    }
+
+    fn filtered(mut self) -> Self {
+        self.1 = WlMitmVerdict::Filtered;
+        self
+    }
+
+    fn terminate(mut self) -> Self {
+        self.1 = WlMitmVerdict::Terminate;
+        self
+    }
+}
+
 pub struct WlMitmState {
     config: Arc<Config>,
     objects: WlObjects,
@@ -62,7 +108,8 @@ impl WlMitmState {
 
     /// Returns the number of fds consumed while parsing the message as a concrete Wayland type, and a verdict
     #[tracing::instrument(skip_all)]
-    pub async fn on_c2s_request(&mut self, raw_msg: &WlRawMsg) -> (usize, bool) {
+    pub async fn on_c2s_request(&mut self, raw_msg: &WlRawMsg) -> WlMitmOutcome {
+        let mut outcome: WlMitmOutcome = Default::default();
         let msg = match crate::proto::decode_request(&self.objects, raw_msg) {
             WaylandProtocolParsingOutcome::Ok(msg) => msg,
             _ => {
@@ -78,9 +125,11 @@ impl WlMitmState {
                     num_fds = raw_msg.fds.len(),
                     "Malformed or unknown request"
                 );
-                return (0, false);
+                return outcome.terminate();
             }
         };
+
+        outcome.set_consumed_fds(msg.num_consumed_fds());
 
         self.handle_created_or_destroyed_objects(&*msg);
 
@@ -92,7 +141,7 @@ impl WlMitmState {
             // to bind to it; if it does, it's likely a malicious client!
             // So, we simply remove these messages from the stream, which will cause the Wayland server to error out.
             let Some(obj_type) = self.objects.lookup_global(msg.name) else {
-                return (0, false);
+                return outcome.terminate();
             };
 
             if obj_type.interface() != msg.id_interface_name {
@@ -102,7 +151,7 @@ impl WlMitmState {
                     msg.name,
                     obj_type.interface()
                 );
-                return (0, false);
+                return outcome.terminate();
             }
 
             info!(
@@ -150,9 +199,10 @@ impl WlMitmState {
                                         msg.self_msg_name(),
                                         status
                                     );
+                                    return outcome.filtered();
+                                } else {
+                                    return outcome.allowed();
                                 }
-
-                                return (msg.num_consumed_fds(), status.success());
                             }
                         }
 
@@ -161,7 +211,7 @@ impl WlMitmState {
                             msg.self_object_type().interface(),
                             msg.self_msg_name()
                         );
-                        return (msg.num_consumed_fds(), false);
+                        return outcome.filtered();
                     }
                     WlFilterRequestAction::Block => {
                         warn!(
@@ -170,17 +220,18 @@ impl WlMitmState {
                             msg.self_msg_name()
                         );
                         // TODO: don't just return false, build an error event
-                        return (msg.num_consumed_fds(), false);
+                        return outcome.filtered();
                     }
                 }
             }
         }
 
-        (msg.num_consumed_fds(), true)
+        outcome.allowed()
     }
 
     #[tracing::instrument(skip_all)]
-    pub async fn on_s2c_event(&mut self, raw_msg: &WlRawMsg) -> (usize, bool) {
+    pub async fn on_s2c_event(&mut self, raw_msg: &WlRawMsg) -> WlMitmOutcome {
+        let mut outcome: WlMitmOutcome = Default::default();
         let msg = match crate::proto::decode_event(&self.objects, raw_msg) {
             WaylandProtocolParsingOutcome::Ok(msg) => msg,
             _ => {
@@ -196,9 +247,11 @@ impl WlMitmState {
                     num_fds = raw_msg.fds.len(),
                     "Malformed or unknown event"
                 );
-                return (0, false);
+                return outcome.terminate();
             }
         };
+
+        outcome.set_consumed_fds(msg.num_consumed_fds());
 
         self.handle_created_or_destroyed_objects(&*msg);
 
@@ -219,7 +272,7 @@ impl WlMitmState {
                     "Unknown interface removed! If required, please include its XML when building wl-mitm!"
                 );
 
-                return (0, false);
+                return outcome.filtered();
             };
 
             // To block entire extensions, we just need to filter out their announced global objects.
@@ -228,7 +281,7 @@ impl WlMitmState {
                     interface = msg.interface,
                     "Removing interface from published globals"
                 );
-                return (0, false);
+                return outcome.filtered();
             }
 
             // Else, record the global object. These are the only ones we're ever going to allow through.
@@ -242,6 +295,6 @@ impl WlMitmState {
             self.objects.remove_object(msg.id);
         }
 
-        (msg.num_consumed_fds(), true)
+        outcome.allowed()
     }
 }

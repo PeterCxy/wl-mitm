@@ -10,7 +10,7 @@ use std::{io, path::Path, sync::Arc};
 
 use config::Config;
 use io_util::{WlMsgReader, WlMsgWriter};
-use state::WlMitmState;
+use state::{WlMitmOutcome, WlMitmState, WlMitmVerdict};
 use tokio::net::{UnixListener, UnixStream};
 use tracing::{Instrument, Level, debug, error, info, span};
 
@@ -93,11 +93,15 @@ pub async fn handle_conn(
                     codec::DecoderOutcome::Decoded(mut wl_raw_msg) => {
                         debug!(obj_id = wl_raw_msg.obj_id, opcode = wl_raw_msg.opcode, num_fds = wl_raw_msg.fds.len(), "s2c event");
 
-                        let (num_consumed_fds, verdict) = state.on_s2c_event(&wl_raw_msg).await;
+                        let WlMitmOutcome(num_consumed_fds, verdict) = state.on_s2c_event(&wl_raw_msg).await;
                         upstream_read.return_unused_fds(&mut wl_raw_msg, num_consumed_fds);
 
-                        if verdict {
-                            downstream_write.queue_write(wl_raw_msg);
+                        match verdict {
+                            WlMitmVerdict::Allowed => {
+                                downstream_write.queue_write(wl_raw_msg);
+                            },
+                            WlMitmVerdict::Terminate => break Err(io::Error::new(io::ErrorKind::ConnectionAborted, "aborting connection")),
+                            _ => {}
                         }
                     },
                     codec::DecoderOutcome::Incomplete => continue,
@@ -109,11 +113,15 @@ pub async fn handle_conn(
                     codec::DecoderOutcome::Decoded(mut wl_raw_msg) => {
                         debug!(obj_id = wl_raw_msg.obj_id, opcode = wl_raw_msg.opcode, num_fds = wl_raw_msg.fds.len(), "c2s request");
 
-                        let (num_consumed_fds, verdict) = state.on_c2s_request(&wl_raw_msg).await;
+                        let WlMitmOutcome(num_consumed_fds, verdict) = state.on_c2s_request(&wl_raw_msg).await;
                         downstream_read.return_unused_fds(&mut wl_raw_msg, num_consumed_fds);
 
-                        if verdict {
-                            upstream_write.queue_write(wl_raw_msg);
+                        match verdict {
+                            WlMitmVerdict::Allowed => {
+                                upstream_write.queue_write(wl_raw_msg);
+                            },
+                            WlMitmVerdict::Terminate => break Err(io::Error::new(io::ErrorKind::ConnectionAborted, "aborting connection")),
+                            _ => {}
                         }
                     },
                     codec::DecoderOutcome::Incomplete => continue,
