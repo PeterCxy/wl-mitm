@@ -48,6 +48,9 @@ impl Hash for WlObjectType {
 
 pub struct WlObjects {
     objects: HashMap<u32, WlObjectType>,
+    /// Objects that have been destroyed by the client, but not yet ACK'd by the server
+    /// Objects in this state may still receive events from the server.
+    objects_half_destroyed: HashMap<u32, WlObjectType>,
     /// u32 "name"s of globals mapped to their object types
     global_names: HashMap<u32, WlObjectType>,
 }
@@ -59,6 +62,7 @@ impl WlObjects {
 
         WlObjects {
             objects,
+            objects_half_destroyed: HashMap::new(),
             global_names: Default::default(),
         }
     }
@@ -67,12 +71,35 @@ impl WlObjects {
         self.objects.insert(id, obj_type);
     }
 
+    /// Returns [Some] if we have a record of that object ID. However,
+    /// that object could have been destroyed by the client but not yet ACK'd
+    /// by the server -- in that case, use [Self::is_half_destroyed]!
     pub fn lookup_object(&self, id: u32) -> Option<WlObjectType> {
-        self.objects.get(&id).cloned()
+        self.objects
+            .get(&id)
+            .or_else(|| self.objects_half_destroyed.get(&id))
+            .cloned()
     }
 
-    pub fn remove_object(&mut self, id: u32) {
-        self.objects.remove(&id);
+    pub fn is_half_destroyed(&self, id: u32) -> bool {
+        self.objects_half_destroyed.contains_key(&id)
+    }
+
+    pub fn remove_object(&mut self, id: u32, from_client: bool) {
+        let is_client_object = id <= 0xFEFFFFFF;
+
+        if from_client && is_client_object {
+            // If a client destroys an object _it has created_, we don't remove it entirely;
+            // we record it in another map and wait for the server to finally destroy it.
+            // This is because the server may still send events before it ACK's the destruction request.
+            let Some(old_entry) = self.objects.remove(&id) else {
+                return;
+            };
+            self.objects_half_destroyed.insert(id, old_entry);
+        } else {
+            self.objects.remove(&id);
+            self.objects_half_destroyed.remove(&id);
+        }
     }
 
     pub fn record_global(&mut self, name: u32, interface: WlObjectType) {

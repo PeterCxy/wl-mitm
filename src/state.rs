@@ -77,7 +77,11 @@ impl WlMitmState {
     ///
     /// Note that most _globals_ are instantiated using [WlRegistryBindRequest]. That request
     /// is not handled here.
-    fn handle_created_or_destroyed_objects(&mut self, msg: &dyn AnyWlParsedMessage<'_>) -> bool {
+    fn handle_created_or_destroyed_objects(
+        &mut self,
+        msg: &dyn AnyWlParsedMessage<'_>,
+        from_client: bool,
+    ) -> bool {
         if let Some(created_objects) = msg.known_objects_created() {
             if let Some(parent_obj) = self.objects.lookup_object(msg.obj_id()) {
                 for (id, tt) in created_objects.into_iter() {
@@ -87,6 +91,7 @@ impl WlMitmState {
                             obj_type = tt.interface(),
                             obj_id = id,
                             existing_obj_type = existing_obj_type.interface(),
+                            is_half_destroyed = self.objects.is_half_destroyed(id),
                             "Trying to create object via message {}::{} but the object ID is already used!",
                             parent_obj.interface(),
                             msg.self_msg_name()
@@ -110,16 +115,20 @@ impl WlMitmState {
                 return false;
             }
         } else if msg.is_destructor() {
-            if let Some(obj_type) = self.objects.lookup_object(msg.obj_id()) {
-                debug!(
-                    obj_id = msg.obj_id(),
-                    "Object destructed via destructor {}::{}",
-                    obj_type.interface(),
-                    msg.self_msg_name()
-                );
-            }
+            let Some(obj_type) = self.objects.lookup_object(msg.obj_id()) else {
+                // This shouldn't really happen -- to decode the message we have to have a record of the object
+                error!("Destructed object ID {} not found!", msg.obj_id());
+                return false;
+            };
 
-            self.objects.remove_object(msg.obj_id());
+            debug!(
+                obj_id = msg.obj_id(),
+                "Object destructed via destructor {}::{}",
+                obj_type.interface(),
+                msg.self_msg_name()
+            );
+
+            self.objects.remove_object(msg.obj_id(), from_client);
         }
 
         true
@@ -150,7 +159,18 @@ impl WlMitmState {
 
         outcome.set_consumed_fds(msg.num_consumed_fds());
 
-        if !self.handle_created_or_destroyed_objects(&*msg) {
+        // To get here, the object referred to in raw_msg must exist, but it might already be destroyed by the client
+        // In that case, the client is broken!
+        if self.objects.is_half_destroyed(msg.obj_id()) {
+            error!(
+                obj_id = msg.obj_id(),
+                opcode = msg.self_opcode(),
+                "Client request detected on object already scheduled for destruction; aborting!"
+            );
+            return outcome.terminate();
+        }
+
+        if !self.handle_created_or_destroyed_objects(&*msg, true) {
             return outcome.terminate();
         }
 
@@ -274,7 +294,7 @@ impl WlMitmState {
 
         outcome.set_consumed_fds(msg.num_consumed_fds());
 
-        if !self.handle_created_or_destroyed_objects(&*msg) {
+        if !self.handle_created_or_destroyed_objects(&*msg, false) {
             return outcome.terminate();
         }
 
@@ -315,7 +335,7 @@ impl WlMitmState {
             self.objects.remove_global(msg.name);
         } else if let Some(msg) = msg.downcast_ref::<WlDisplayDeleteIdEvent>() {
             // Server has acknowledged deletion of an object
-            self.objects.remove_object(msg.id);
+            self.objects.remove_object(msg.id, false);
         }
 
         outcome.allowed()
