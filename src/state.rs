@@ -73,12 +73,28 @@ impl WlMitmState {
 
     /// Handle messages which register new objects with known interfaces or deletes them.
     ///
+    /// If there is an error, this function will return false and the connection shall be terminated.
+    ///
     /// Note that most _globals_ are instantiated using [WlRegistryBindRequest]. That request
     /// is not handled here.
-    fn handle_created_or_destroyed_objects(&mut self, msg: &dyn AnyWlParsedMessage<'_>) {
+    fn handle_created_or_destroyed_objects(&mut self, msg: &dyn AnyWlParsedMessage<'_>) -> bool {
         if let Some(created_objects) = msg.known_objects_created() {
             if let Some(parent_obj) = self.objects.lookup_object(msg.obj_id()) {
                 for (id, tt) in created_objects.into_iter() {
+                    if let Some(existing_obj_type) = self.objects.lookup_object(id) {
+                        debug!(
+                            parent_obj_id = msg.obj_id(),
+                            obj_type = tt.interface(),
+                            obj_id = id,
+                            existing_obj_type = existing_obj_type.interface(),
+                            "Trying to create object via message {}::{} but the object ID is already used!",
+                            parent_obj.interface(),
+                            msg.self_msg_name()
+                        );
+
+                        return false;
+                    }
+
                     debug!(
                         parent_obj_id = msg.obj_id(),
                         obj_type = tt.interface(),
@@ -90,7 +106,8 @@ impl WlMitmState {
                     self.objects.record_object(tt, id);
                 }
             } else {
-                error!("Parent object ID {} not found, ignoring", msg.obj_id());
+                error!("Parent object ID {} not found!", msg.obj_id());
+                return false;
             }
         } else if msg.is_destructor() {
             if let Some(obj_type) = self.objects.lookup_object(msg.obj_id()) {
@@ -104,6 +121,8 @@ impl WlMitmState {
 
             self.objects.remove_object(msg.obj_id());
         }
+
+        true
     }
 
     /// Returns the number of fds consumed while parsing the message as a concrete Wayland type, and a verdict
@@ -131,7 +150,9 @@ impl WlMitmState {
 
         outcome.set_consumed_fds(msg.num_consumed_fds());
 
-        self.handle_created_or_destroyed_objects(&*msg);
+        if !self.handle_created_or_destroyed_objects(&*msg) {
+            return outcome.terminate();
+        }
 
         // The bind request doesn't create interface with a fixed type; handle it separately.
         if let Some(msg) = msg.downcast_ref::<WlRegistryBindRequest>() {
@@ -253,7 +274,9 @@ impl WlMitmState {
 
         outcome.set_consumed_fds(msg.num_consumed_fds());
 
-        self.handle_created_or_destroyed_objects(&*msg);
+        if !self.handle_created_or_destroyed_objects(&*msg) {
+            return outcome.terminate();
+        }
 
         if let Some(msg) = msg.downcast_ref::<WlRegistryGlobalEvent>() {
             // This event is how Wayland servers announce globals -- and they are the entrypoint to
