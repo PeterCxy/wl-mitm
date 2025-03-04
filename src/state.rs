@@ -66,8 +66,14 @@ impl WlMitmState {
         let msg = match crate::proto::decode_request(&self.objects, raw_msg) {
             WaylandProtocolParsingOutcome::Ok(msg) => msg,
             _ => {
+                let obj_type = self
+                    .objects
+                    .lookup_object(raw_msg.obj_id)
+                    .map(|t| t.interface());
+
                 error!(
                     obj_id = raw_msg.obj_id,
+                    obj_type = ?obj_type,
                     opcode = raw_msg.opcode,
                     num_fds = raw_msg.fds.len(),
                     "Malformed or unknown request"
@@ -178,8 +184,14 @@ impl WlMitmState {
         let msg = match crate::proto::decode_event(&self.objects, raw_msg) {
             WaylandProtocolParsingOutcome::Ok(msg) => msg,
             _ => {
+                let obj_type = self
+                    .objects
+                    .lookup_object(raw_msg.obj_id)
+                    .map(|t| t.interface());
+
                 error!(
                     obj_id = raw_msg.obj_id,
+                    obj_type = ?obj_type,
                     opcode = raw_msg.opcode,
                     num_fds = raw_msg.fds.len(),
                     "Malformed or unknown event"
