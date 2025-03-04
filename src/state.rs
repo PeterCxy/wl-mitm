@@ -229,6 +229,7 @@ impl WlMitmState {
                             let mut cmd = tokio::process::Command::new(ask_cmd);
                             cmd.arg(msg.self_object_type().interface());
                             cmd.arg(msg.self_msg_name());
+                            cmd.arg(filtered.desc.as_deref().unwrap_or_else(|| ""));
                             // Note: the _last_ argument is always the JSON representation!
                             cmd.arg(msg.to_json());
 

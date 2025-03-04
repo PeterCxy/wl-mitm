@@ -53,9 +53,13 @@ requests = [ "receive" ]
 # What to do? "block" to block it outright; "ask" to invoke
 # `ask_cmd` first.
 action = "ask"
+# A short, human-readable description of the action; passed to the
+# `ask_cmd`
+desc = "pasting from clipboard (from background)"
 
 [[filter.requests]]
 interface = "zwlr_data_control_device_v1"
 # These are the requests used by clients to set the clipboard content
 requests = [ "set_selection", "set_primary_selection" ]
 action = "ask"
+desc = "overriding clipboard selection"

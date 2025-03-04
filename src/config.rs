@@ -72,6 +72,7 @@ pub struct WlFilterRequest {
     pub interface: String,
     pub requests: HashSet<String>,
     pub action: WlFilterRequestAction,
+    pub desc: Option<String>,
 }
 
 /// Deserialize an array of [WlFilterRequest]s to a hashmap keyed by interface name
