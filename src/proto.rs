@@ -1,6 +1,6 @@
 //! Protocol definitions necessary for this MITM proxy
 
-use std::{collections::HashMap, sync::LazyLock};
+use std::{collections::HashMap, os::fd::OwnedFd, sync::LazyLock};
 
 use crate::{
     codec::WlRawMsg,
@@ -168,6 +168,17 @@ pub trait WlMsgParserFn: Send + Sync {
     ) -> WaylandProtocolParsingOutcome<Box<dyn AnyWlParsedMessage<'msg> + 'msg>>;
 }
 
+/// Messages that can be converted back to [WlRawMsg]
+pub trait WlConstructableMessage<'a>: Sized + WlParsedMessage<'a> {
+    fn build(&self) -> WlRawMsg {
+        WlRawMsg::build(self.obj_id(), Self::opcode(), |buf, fds| {
+            self.build_inner(buf, fds)
+        })
+    }
+
+    fn build_inner(&self, buf: &mut BytesMut, fds: &mut Vec<OwnedFd>);
+}
+
 /// A map from known interface names to their object types in Rust representation
 static WL_KNOWN_OBJECT_TYPES: LazyLock<HashMap<&'static str, WlObjectType>> = LazyLock::new(|| {
     let mut ret = HashMap::new();
@@ -238,4 +249,5 @@ pub const WL_DISPLAY_OBJECT_ID: u32 = 1;
 #[rustfmt::skip]
 #[path = "../generated/proto_generated.rs"]
 mod proto_generated;
+use bytes::BytesMut;
 pub use proto_generated::*;

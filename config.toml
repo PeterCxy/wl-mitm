@@ -56,6 +56,10 @@ action = "ask"
 # A short, human-readable description of the action; passed to the
 # `ask_cmd`
 desc = "pasting from clipboard (from background)"
+# An error code to send back when this is blocked; defaults to 0
+# See the interface's XML definition (or at Wayland explorer) for
+# a list of error codes.
+error_code = 0
 
 [[filter.requests]]
 interface = "zwlr_data_control_device_v1"

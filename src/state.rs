@@ -16,9 +16,10 @@ use crate::{
 pub enum WlMitmVerdict {
     /// This message is allowed. Pass it through to the opposite end.
     Allowed,
-    /// This message is filtered.
-    /// TODO: We should probably construct a proper error response
+    /// This message is filtered
     Filtered,
+    /// This messages is rejected (i.e. filtered, but comes with an error code to return to sender)
+    Rejected(u32),
     /// Terminate this entire session. Something is off.
     Terminate,
 }
@@ -54,6 +55,11 @@ impl WlMitmOutcome {
 
     fn terminate(mut self) -> Self {
         self.1 = WlMitmVerdict::Terminate;
+        self
+    }
+
+    fn rejected(mut self, error_code: u32) -> Self {
+        self.1 = WlMitmVerdict::Rejected(error_code);
         self
     }
 }
@@ -241,7 +247,7 @@ impl WlMitmState {
                                         msg.self_msg_name(),
                                         status
                                     );
-                                    return outcome.filtered();
+                                    return outcome.rejected(filtered.error_code);
                                 } else {
                                     return outcome.allowed();
                                 }
@@ -253,7 +259,7 @@ impl WlMitmState {
                             msg.self_object_type().interface(),
                             msg.self_msg_name()
                         );
-                        return outcome.filtered();
+                        return outcome.rejected(filtered.error_code);
                     }
                     WlFilterRequestAction::Block => {
                         warn!(
@@ -261,8 +267,7 @@ impl WlMitmState {
                             msg.self_object_type().interface(),
                             msg.self_msg_name()
                         );
-                        // TODO: don't just return false, build an error event
-                        return outcome.filtered();
+                        return outcome.rejected(filtered.error_code);
                     }
                 }
             }

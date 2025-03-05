@@ -73,6 +73,8 @@ pub struct WlFilterRequest {
     pub requests: HashSet<String>,
     pub action: WlFilterRequestAction,
     pub desc: Option<String>,
+    #[serde(default)]
+    pub error_code: u32,
 }
 
 /// Deserialize an array of [WlFilterRequest]s to a hashmap keyed by interface name

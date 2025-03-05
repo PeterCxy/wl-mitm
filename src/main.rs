@@ -10,6 +10,7 @@ use std::{io, path::Path, sync::Arc};
 
 use config::Config;
 use io_util::{WlMsgReader, WlMsgWriter};
+use proto::{WL_DISPLAY_OBJECT_ID, WlConstructableMessage, WlDisplayErrorEvent};
 use state::{WlMitmOutcome, WlMitmState, WlMitmVerdict};
 use tokio::net::{UnixListener, UnixStream};
 use tracing::{Instrument, Level, debug, error, info, span};
@@ -119,6 +120,11 @@ pub async fn handle_conn(
                         match verdict {
                             WlMitmVerdict::Allowed => {
                                 upstream_write.queue_write(wl_raw_msg);
+                            },
+                            WlMitmVerdict::Rejected(error_code) => {
+                                downstream_write.queue_write(
+                                    WlDisplayErrorEvent::new(WL_DISPLAY_OBJECT_ID, wl_raw_msg.obj_id, error_code, "Rejected by wl-mitm").build()
+                                );
                             },
                             WlMitmVerdict::Terminate => break Err(io::Error::new(io::ErrorKind::ConnectionAborted, "aborting connection")),
                             _ => {}

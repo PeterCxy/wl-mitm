@@ -1,7 +1,8 @@
 use std::{collections::VecDeque, os::fd::OwnedFd};
 
 use byteorder::{ByteOrder, NativeEndian};
-use bytes::{Bytes, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
+use tracing::debug;
 
 #[allow(unused)]
 pub struct WlRawMsg {
@@ -62,6 +63,34 @@ impl WlRawMsg {
 
     pub fn into_parts(self) -> (Bytes, Box<[OwnedFd]>) {
         (self.msg_buf, self.fds.into_boxed_slice())
+    }
+
+    pub fn build(
+        obj_id: u32,
+        opcode: u16,
+        builder: impl FnOnce(&mut BytesMut, &mut Vec<OwnedFd>),
+    ) -> WlRawMsg {
+        let mut fds = Vec::new();
+        let mut buf = BytesMut::new();
+        buf.put_u32_ne(obj_id);
+        // We don't yet know the length of this message, so put a 0 as placeholder
+        buf.put_u32_ne(0);
+
+        builder(&mut buf, &mut fds);
+
+        let len_and_opcode = ((buf.len() as u32) << 16 as u32) | (opcode as u32);
+        debug!(len_and_opcode = len_and_opcode, "message len and opcode");
+        NativeEndian::write_u32(&mut buf[4..8], len_and_opcode);
+
+        debug!(buf = ?buf, "constructed message");
+
+        WlRawMsg {
+            obj_id,
+            len: buf.len() as u16,
+            opcode,
+            msg_buf: buf.freeze(),
+            fds,
+        }
     }
 }
 

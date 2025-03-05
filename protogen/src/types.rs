@@ -122,15 +122,18 @@ impl WlMsg {
             .filter(|(_, tt)| matches!(tt, WlArgType::Fd))
             .count();
 
-        // Generate code to include in the parser for every field
-        let parser_code: Vec<_> = self
+        // Generate code to include in the parser / builder for every field
+        let (parser_code, builder_code): (Vec<_>, Vec<_>) = self
             .args
             .iter()
             .map(|(arg_name, arg_type)| {
                 let arg_name_ident = format_ident!("{arg_name}");
-                arg_type.generate_parser_code(arg_name_ident)
+                (
+                    arg_type.generate_parser_code(&arg_name_ident),
+                    arg_type.generate_builder_code(&arg_name_ident),
+                )
             })
-            .collect();
+            .unzip();
 
         // Collect new objects created in this msg with a known object type (interface)
         let (new_id_name, new_id_type): (Vec<_>, Vec<_>) = self
@@ -167,6 +170,20 @@ impl WlMsg {
                 _phantom: std::marker::PhantomData<&'a ()>,
                 obj_id: u32,
                 #( #field_attrs pub #field_names: #field_types, )*
+            }
+
+            impl<'a> #struct_name<'a> {
+                #[allow(unused, non_snake_case)]
+                pub fn new(
+                    obj_id: u32,
+                    #( #field_names: #field_types, )*
+                ) -> Self {
+                    Self {
+                        _phantom: std::marker::PhantomData,
+                        obj_id,
+                        #( #field_names, )*
+                    }
+                }
             }
 
             impl<'a> crate::proto::__private::WlParsedMessagePrivate for #struct_name<'a> {}
@@ -249,6 +266,15 @@ impl WlMsg {
                     #struct_name::try_from_msg(objects, msg).map(|r| Box::new(r) as Box<_>)
                 }
             }
+
+            impl<'a> crate::proto::WlConstructableMessage<'a> for #struct_name<'a> {
+                #[allow(unused, non_snake_case)]
+                fn build_inner(&self, buf: &mut bytes::BytesMut, fds: &mut Vec<std::os::fd::OwnedFd>) {
+                    use bytes::BufMut;
+                    use std::os::fd::BorrowedFd;
+                    #( #builder_code )*
+                }
+            }
         }
     }
 }
@@ -325,7 +351,7 @@ impl WlArgType {
     /// Code generated here will set up a variable with `var_name` containing the parsed result
     /// of the current argument. This `var_name` can then be used later to construct the event or
     /// request's struct.
-    pub fn generate_parser_code(&self, var_name: Ident) -> proc_macro2::TokenStream {
+    pub fn generate_parser_code(&self, var_name: &Ident) -> proc_macro2::TokenStream {
         match self {
             WlArgType::Int => quote! {
                 if payload.len() < pos + 4 {
@@ -421,6 +447,42 @@ impl WlArgType {
 
                 let #var_name: std::os::fd::BorrowedFd<'_> = std::os::fd::AsFd::as_fd(&msg.fds[pos_fds]);
                 pos_fds += 1;
+            },
+        }
+    }
+
+    pub fn generate_builder_code(&self, var_name: &Ident) -> proc_macro2::TokenStream {
+        match self {
+            WlArgType::Int => quote! {
+                buf.put_i32_ne(self.#var_name);
+            },
+            WlArgType::Uint | WlArgType::Object | WlArgType::NewId(_) | WlArgType::Enum => quote! {
+                buf.put_u32_ne(self.#var_name);
+            },
+            WlArgType::Fixed => quote! {
+                buf.extend_from_slice(&self.#var_name.to_ne_bytes());
+            },
+            WlArgType::String => quote! {
+                let bytes = self.#var_name.as_bytes();
+                let len = bytes.len() + 1;
+                buf.put_u32_ne(len as u32);
+                buf.extend_from_slice(bytes);
+                buf.put_u8(0);
+
+                if len % 4 != 0 {
+                    buf.put_bytes(0, (4 - len % 4));
+                }
+            },
+            WlArgType::Array => quote! {
+                buf.put_u32_ne(self.#var_name.len() as u32);
+                buf.extend_from_slice(self.#var_name);
+
+                if self.#var_name.len() % 4 != 0 {
+                    buf.put_bytes(0, (4 - self.#var_name.len() % 4));
+                }
+            },
+            WlArgType::Fd => quote! {
+                fds.push(self.#var_name.try_clone_to_owned().unwrap());
             },
         }
     }
