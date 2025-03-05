@@ -271,6 +271,24 @@ impl WlMitmState {
                             }
                         };
                     }
+                    WlFilterRequestAction::Notify => {
+                        if let Some(ref notify_cmd) = self.config.filter.notify_cmd {
+                            info!(
+                                notify_cmd = notify_cmd,
+                                "Running notify command for {}::{}",
+                                msg.self_object_type().interface(),
+                                msg.self_msg_name()
+                            );
+
+                            let mut cmd = prepare_command(
+                                &*msg,
+                                notify_cmd,
+                                filtered.desc.as_deref().unwrap_or_else(|| ""),
+                            );
+
+                            cmd.spawn().ok();
+                        }
+                    }
                     WlFilterRequestAction::Block => {
                         warn!(
                             "Blocked {}::{}",

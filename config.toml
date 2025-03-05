@@ -43,6 +43,13 @@ allowed_globals = [
 # WL_MITM_MSG_JSON env variable.
 ask_cmd = "contrib/ask-bemenu.sh"
 
+# A command to invoke when a request filter has `action = "notify"`.
+#
+# Everything is the same as `ask_cmd`, except that we don't wait for this
+# process to finish and we ignore its output and status code. The request
+# will not be filtered whatever this command does.
+notify_cmd = "contrib/notify-libnotify.sh"
+
 # A list of requests we'd like to filter
 [[filter.requests]]
 # The interface name in question
@@ -75,3 +82,14 @@ interface = "zwlr_data_control_device_v1"
 requests = [ "set_selection", "set_primary_selection" ]
 action = "ask"
 desc = "overriding clipboard selection"
+
+# This is the paste request used when we press Ctrl-V in a foreground application.
+#
+# Filtering this would make most apps misbehave whether we use "ignore" or "reject",
+# so best course of action is to simply notify the user that the foreground app has
+# pasted.
+[[filter.requests]]
+interface = "wl_data_offer"
+requests = [ "receive" ]
+action = "notify"
+desc = "foreground application pasted from clipboard or accepted drag and drop"

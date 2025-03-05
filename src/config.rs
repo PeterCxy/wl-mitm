@@ -55,6 +55,7 @@ impl WlSockets {
 pub struct WlFilter {
     pub allowed_globals: HashSet<String>,
     pub ask_cmd: Option<String>,
+    pub notify_cmd: Option<String>,
     #[serde(deserialize_with = "deserialize_filter_requests")]
     pub requests: HashMap<String, Vec<WlFilterRequest>>,
 }
@@ -65,6 +66,8 @@ pub enum WlFilterRequestAction {
     Block,
     #[serde(rename = "ask")]
     Ask,
+    #[serde(rename = "notify")]
+    Notify,
 }
 
 #[derive(Deserialize)]
