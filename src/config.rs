@@ -68,11 +68,27 @@ pub enum WlFilterRequestAction {
 }
 
 #[derive(Deserialize)]
+pub enum WlFilterRequestBlockType {
+    #[serde(rename = "ignore")]
+    Ignore,
+    #[serde(rename = "reject")]
+    Reject,
+}
+
+impl Default for WlFilterRequestBlockType {
+    fn default() -> Self {
+        Self::Ignore
+    }
+}
+
+#[derive(Deserialize)]
 pub struct WlFilterRequest {
     pub interface: String,
     pub requests: HashSet<String>,
     pub action: WlFilterRequestAction,
     pub desc: Option<String>,
+    #[serde(default)]
+    pub block_type: WlFilterRequestBlockType,
     #[serde(default)]
     pub error_code: u32,
 }

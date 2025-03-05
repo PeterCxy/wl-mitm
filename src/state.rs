@@ -4,7 +4,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     codec::WlRawMsg,
-    config::{Config, WlFilterRequestAction},
+    config::{Config, WlFilterRequestAction, WlFilterRequestBlockType},
     objects::WlObjects,
     proto::{
         AnyWlParsedMessage, WaylandProtocolParsingOutcome, WlDisplayDeleteIdEvent,
@@ -247,7 +247,13 @@ impl WlMitmState {
                                         msg.self_msg_name(),
                                         status
                                     );
-                                    return outcome.rejected(filtered.error_code);
+
+                                    return match filtered.block_type {
+                                        WlFilterRequestBlockType::Ignore => outcome.filtered(),
+                                        WlFilterRequestBlockType::Reject => {
+                                            outcome.rejected(filtered.error_code)
+                                        }
+                                    };
                                 } else {
                                     return outcome.allowed();
                                 }
@@ -259,7 +265,12 @@ impl WlMitmState {
                             msg.self_object_type().interface(),
                             msg.self_msg_name()
                         );
-                        return outcome.rejected(filtered.error_code);
+                        return match filtered.block_type {
+                            WlFilterRequestBlockType::Ignore => outcome.filtered(),
+                            WlFilterRequestBlockType::Reject => {
+                                outcome.rejected(filtered.error_code)
+                            }
+                        };
                     }
                     WlFilterRequestAction::Block => {
                         warn!(
@@ -267,7 +278,12 @@ impl WlMitmState {
                             msg.self_object_type().interface(),
                             msg.self_msg_name()
                         );
-                        return outcome.rejected(filtered.error_code);
+                        return match filtered.block_type {
+                            WlFilterRequestBlockType::Ignore => outcome.filtered(),
+                            WlFilterRequestBlockType::Reject => {
+                                outcome.rejected(filtered.error_code)
+                            }
+                        };
                     }
                 }
             }
