@@ -232,12 +232,11 @@ impl WlMitmState {
                                 msg.self_msg_name()
                             );
 
-                            let mut cmd = tokio::process::Command::new(ask_cmd);
-                            cmd.arg(msg.self_object_type().interface());
-                            cmd.arg(msg.self_msg_name());
-                            cmd.arg(filtered.desc.as_deref().unwrap_or_else(|| ""));
-                            // Note: the _last_ argument is always the JSON representation!
-                            cmd.arg(msg.to_json());
+                            let mut cmd = prepare_command(
+                                &*msg,
+                                ask_cmd,
+                                filtered.desc.as_deref().unwrap_or_else(|| ""),
+                            );
 
                             if let Ok(status) = cmd.status().await {
                                 if !status.success() {
@@ -362,4 +361,17 @@ impl WlMitmState {
 
         outcome.allowed()
     }
+}
+
+fn prepare_command(
+    msg: &dyn AnyWlParsedMessage<'_>,
+    cmd_str: &str,
+    desc: &str,
+) -> tokio::process::Command {
+    let mut cmd = tokio::process::Command::new(cmd_str);
+    cmd.arg(msg.self_object_type().interface());
+    cmd.arg(msg.self_msg_name());
+    cmd.arg(desc);
+    cmd.env("WL_MITM_MSG_JSON", msg.to_json());
+    cmd
 }
