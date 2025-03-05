@@ -9,6 +9,7 @@ use serde_derive::Deserialize;
 #[derive(Deserialize)]
 pub struct Config {
     pub socket: WlSockets,
+    pub exec: WlExec,
     pub filter: WlFilter,
 }
 
@@ -52,10 +53,14 @@ impl WlSockets {
 }
 
 #[derive(Deserialize)]
-pub struct WlFilter {
-    pub allowed_globals: HashSet<String>,
+pub struct WlExec {
     pub ask_cmd: Option<String>,
     pub notify_cmd: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct WlFilter {
+    pub allowed_globals: HashSet<String>,
     #[serde(deserialize_with = "deserialize_filter_requests")]
     pub requests: HashMap<String, Vec<WlFilterRequest>>,
 }

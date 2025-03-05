@@ -6,27 +6,7 @@ listen = "wayland-10"
 # If missing, defaults to $WAYLAND_DISPLAY
 # upstream = "wayland-1"
 
-[filter]
-# A list of Wayland global singleton objects that's allowed
-# Each of them generally correspond to an implemented protocol
-# Note that we can only allow globals we have a corresponding XML
-# file under proto/ for.
-allowed_globals = [
-    # Base wl protocols
-    "wl_compositor",
-    "wl_shm",
-    "wl_data_device_manager",
-    "wl_output", # each output is also a global
-    "wl_seat",
-    # Window management
-    "xdg_wm_base",
-    "zxdg_decoration_manager_v1",
-    # Linux DMA-BUF
-    "zwp_linux_dmabuf_v1",
-    # Clipboard manager from wlroots, used for the filter example below.
-    "zwlr_data_control_manager_v1"
-]
-
+[exec]
 # A command to invoke when asking the user to permit or deny a
 # Wayland request (configured via [[filter.requests]] below).
 #
@@ -49,6 +29,27 @@ ask_cmd = "contrib/ask-bemenu.sh"
 # process to finish and we ignore its output and status code. The request
 # will not be filtered whatever this command does.
 notify_cmd = "contrib/notify-libnotify.sh"
+
+[filter]
+# A list of Wayland global singleton objects that's allowed
+# Each of them generally correspond to an implemented protocol
+# Note that we can only allow globals we have a corresponding XML
+# file under proto/ for.
+allowed_globals = [
+    # Base wl protocols
+    "wl_compositor",
+    "wl_shm",
+    "wl_data_device_manager",
+    "wl_output", # each output is also a global
+    "wl_seat",
+    # Window management
+    "xdg_wm_base",
+    "zxdg_decoration_manager_v1",
+    # Linux DMA-BUF
+    "zwp_linux_dmabuf_v1",
+    # Clipboard manager from wlroots, used for the filter example below.
+    "zwlr_data_control_manager_v1"
+]
 
 # A list of requests we'd like to filter
 [[filter.requests]]

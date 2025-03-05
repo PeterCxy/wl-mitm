@@ -224,7 +224,7 @@ impl WlMitmState {
             {
                 match filtered.action {
                     WlFilterRequestAction::Ask => {
-                        if let Some(ref ask_cmd) = self.config.filter.ask_cmd {
+                        if let Some(ref ask_cmd) = self.config.exec.ask_cmd {
                             info!(
                                 ask_cmd = ask_cmd,
                                 "Running ask command for {}::{}",
@@ -272,7 +272,7 @@ impl WlMitmState {
                         };
                     }
                     WlFilterRequestAction::Notify => {
-                        if let Some(ref notify_cmd) = self.config.filter.notify_cmd {
+                        if let Some(ref notify_cmd) = self.config.exec.notify_cmd {
                             info!(
                                 notify_cmd = notify_cmd,
                                 "Running notify command for {}::{}",
