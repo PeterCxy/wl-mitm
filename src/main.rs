@@ -6,8 +6,9 @@ mod proto;
 mod config;
 mod state;
 
-use std::{io, path::Path, sync::Arc};
+use std::{io, ops::ControlFlow, path::Path, sync::Arc};
 
+use codec::DecoderOutcome;
 use config::Config;
 use io_util::{WlMsgReader, WlMsgWriter};
 use proto::{WL_DISPLAY_OBJECT_ID, WlConstructableMessage, WlDisplayErrorEvent};
@@ -68,75 +69,162 @@ async fn main() {
     }
 }
 
-#[tracing::instrument(skip_all)]
+macro_rules! control_flow {
+    ($f:expr) => {
+        match $f {
+            ControlFlow::Break(res) => break res,
+            ControlFlow::Continue(_) => continue,
+        }
+    };
+}
+
+struct ConnDuplex<'a> {
+    upstream_read: WlMsgReader<'a>,
+    upstream_write: WlMsgWriter<'a>,
+    downstream_read: WlMsgReader<'a>,
+    downstream_write: WlMsgWriter<'a>,
+    state: WlMitmState,
+}
+
+impl<'a> ConnDuplex<'a> {
+    pub fn new(
+        state: WlMitmState,
+        upstream_conn: &'a mut UnixStream,
+        downstream_conn: &'a mut UnixStream,
+    ) -> Self {
+        let (upstream_read, upstream_write) = upstream_conn.split();
+        let (downstream_read, downstream_write) = downstream_conn.split();
+
+        let upstream_read = WlMsgReader::new(upstream_read);
+        let downstream_read = WlMsgReader::new(downstream_read);
+
+        let upstream_write = WlMsgWriter::new(upstream_write);
+        let downstream_write = WlMsgWriter::new(downstream_write);
+
+        Self {
+            upstream_read,
+            upstream_write,
+            downstream_read,
+            downstream_write,
+            state,
+        }
+    }
+
+    async fn handle_s2c_event(
+        &mut self,
+        decoded_raw: DecoderOutcome,
+    ) -> io::Result<ControlFlow<()>> {
+        match decoded_raw {
+            codec::DecoderOutcome::Decoded(mut wl_raw_msg) => {
+                debug!(
+                    obj_id = wl_raw_msg.obj_id,
+                    opcode = wl_raw_msg.opcode,
+                    num_fds = wl_raw_msg.fds.len(),
+                    "s2c event"
+                );
+
+                let WlMitmOutcome(num_consumed_fds, verdict) =
+                    self.state.on_s2c_event(&wl_raw_msg).await;
+                self.upstream_read
+                    .return_unused_fds(&mut wl_raw_msg, num_consumed_fds);
+
+                match verdict {
+                    WlMitmVerdict::Allowed => {
+                        self.downstream_write.queue_write(wl_raw_msg);
+                    }
+                    WlMitmVerdict::Terminate => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::ConnectionAborted,
+                            "aborting connection",
+                        ));
+                    }
+                    _ => {}
+                };
+            }
+            codec::DecoderOutcome::Eof => return Ok(ControlFlow::Break(())),
+            _ => {}
+        }
+
+        Ok(ControlFlow::Continue(()))
+    }
+
+    async fn handle_c2s_request(
+        &mut self,
+        decoded_raw: DecoderOutcome,
+    ) -> io::Result<ControlFlow<()>> {
+        match decoded_raw {
+            codec::DecoderOutcome::Decoded(mut wl_raw_msg) => {
+                debug!(
+                    obj_id = wl_raw_msg.obj_id,
+                    opcode = wl_raw_msg.opcode,
+                    num_fds = wl_raw_msg.fds.len(),
+                    "c2s request"
+                );
+
+                let WlMitmOutcome(num_consumed_fds, verdict) =
+                    self.state.on_c2s_request(&wl_raw_msg).await;
+                self.downstream_read
+                    .return_unused_fds(&mut wl_raw_msg, num_consumed_fds);
+
+                match verdict {
+                    WlMitmVerdict::Allowed => {
+                        self.upstream_write.queue_write(wl_raw_msg);
+                    }
+                    WlMitmVerdict::Rejected(error_code) => {
+                        self.downstream_write.queue_write(
+                            WlDisplayErrorEvent::new(
+                                WL_DISPLAY_OBJECT_ID,
+                                wl_raw_msg.obj_id,
+                                error_code,
+                                "Rejected by wl-mitm",
+                            )
+                            .build(),
+                        );
+                    }
+                    WlMitmVerdict::Terminate => {
+                        return Err(io::Error::new(
+                            io::ErrorKind::ConnectionAborted,
+                            "aborting connection",
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+            codec::DecoderOutcome::Eof => return Ok(ControlFlow::Break(())),
+            _ => {}
+        }
+
+        Ok(ControlFlow::Continue(()))
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub async fn run_to_completion(mut self) -> io::Result<()> {
+        loop {
+            tokio::select! {
+                msg = self.upstream_read.read() => {
+                    control_flow!(self.handle_s2c_event(msg?).await?);
+                }
+                msg = self.downstream_read.read() => {
+                    control_flow!(self.handle_c2s_request(msg?).await?);
+                }
+                res = self.upstream_write.dequeue_write() => res?,
+                res = self.downstream_write.dequeue_write() => res?,
+            }
+        }
+
+        Ok(())
+    }
+}
+
 pub async fn handle_conn(
     config: Arc<Config>,
     src_path: impl AsRef<Path>,
     mut downstream_conn: UnixStream,
 ) -> io::Result<()> {
     let mut upstream_conn = UnixStream::connect(src_path).await?;
+    let state = WlMitmState::new(config);
 
-    let (upstream_read, upstream_write) = upstream_conn.split();
-    let (downstream_read, downstream_write) = downstream_conn.split();
+    let duplex = ConnDuplex::new(state, &mut upstream_conn, &mut downstream_conn);
 
-    let mut upstream_read = WlMsgReader::new(upstream_read);
-    let mut downstream_read = WlMsgReader::new(downstream_read);
-
-    let mut upstream_write = WlMsgWriter::new(upstream_write);
-    let mut downstream_write = WlMsgWriter::new(downstream_write);
-
-    let mut state = WlMitmState::new(config);
-
-    loop {
-        tokio::select! {
-            s2c_msg = upstream_read.read() => {
-                match s2c_msg? {
-                    codec::DecoderOutcome::Decoded(mut wl_raw_msg) => {
-                        debug!(obj_id = wl_raw_msg.obj_id, opcode = wl_raw_msg.opcode, num_fds = wl_raw_msg.fds.len(), "s2c event");
-
-                        let WlMitmOutcome(num_consumed_fds, verdict) = state.on_s2c_event(&wl_raw_msg).await;
-                        upstream_read.return_unused_fds(&mut wl_raw_msg, num_consumed_fds);
-
-                        match verdict {
-                            WlMitmVerdict::Allowed => {
-                                downstream_write.queue_write(wl_raw_msg);
-                            },
-                            WlMitmVerdict::Terminate => break Err(io::Error::new(io::ErrorKind::ConnectionAborted, "aborting connection")),
-                            _ => {}
-                        }
-                    },
-                    codec::DecoderOutcome::Incomplete => continue,
-                    codec::DecoderOutcome::Eof => break Ok(()),
-                }
-            },
-            c2s_msg = downstream_read.read() => {
-                match c2s_msg? {
-                    codec::DecoderOutcome::Decoded(mut wl_raw_msg) => {
-                        debug!(obj_id = wl_raw_msg.obj_id, opcode = wl_raw_msg.opcode, num_fds = wl_raw_msg.fds.len(), "c2s request");
-
-                        let WlMitmOutcome(num_consumed_fds, verdict) = state.on_c2s_request(&wl_raw_msg).await;
-                        downstream_read.return_unused_fds(&mut wl_raw_msg, num_consumed_fds);
-
-                        match verdict {
-                            WlMitmVerdict::Allowed => {
-                                upstream_write.queue_write(wl_raw_msg);
-                            },
-                            WlMitmVerdict::Rejected(error_code) => {
-                                downstream_write.queue_write(
-                                    WlDisplayErrorEvent::new(WL_DISPLAY_OBJECT_ID, wl_raw_msg.obj_id, error_code, "Rejected by wl-mitm").build()
-                                );
-                            },
-                            WlMitmVerdict::Terminate => break Err(io::Error::new(io::ErrorKind::ConnectionAborted, "aborting connection")),
-                            _ => {}
-                        }
-                    },
-                    codec::DecoderOutcome::Incomplete => continue,
-                    codec::DecoderOutcome::Eof => break Ok(()),
-                }
-            }
-            // Try to write of we have any queued up. These don't do anything if no message is queued.
-            res = upstream_write.dequeue_write() => res?,
-            res = downstream_write.dequeue_write() => res?,
-        }
-    }
+    duplex.run_to_completion().await
 }
