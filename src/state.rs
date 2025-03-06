@@ -8,7 +8,10 @@ use crate::{
     objects::WlObjects,
     proto::{
         AnyWlParsedMessage, WaylandProtocolParsingOutcome, WlDisplayDeleteIdEvent,
-        WlRegistryBindRequest, WlRegistryGlobalEvent, WlRegistryGlobalRemoveEvent,
+        WlKeyboardEnterEvent, WlParsedMessage, WlPointerEnterEvent, WlRegistryBindRequest,
+        WlRegistryGlobalEvent, WlRegistryGlobalRemoveEvent, WlTouchDownEvent,
+        XdgSurfaceGetToplevelRequest, XdgToplevelSetAppIdRequest, XdgToplevelSetTitleRequest,
+        XdgWmBaseGetXdgSurfaceRequest,
     },
 };
 
@@ -64,9 +67,31 @@ impl WlMitmOutcome {
     }
 }
 
+/// Association between a wl_surface and an xdg_surface, to facilitate
+/// lookup for [ToplevelSurfaceInfo] from a wl_surface
+struct SurfaceXdgAssociation(u32);
+/// Association between an xdg_surface and an xdg_toplevel
+struct XdgToplevelAssociation(u32);
+
+/// A struct to track information about an app's top-level surfaces (windows)
+/// This gets passed down to ask and notify scripts to produce user-friendly
+/// messages.
+#[derive(Default, Debug)]
+struct ToplevelSurfaceInfo {
+    pub title: Option<String>,
+    pub app_id: Option<String>,
+}
+
+/// Tracks state for _one_ Wayland connection.
 pub struct WlMitmState {
     config: Arc<Config>,
     objects: WlObjects,
+    /// The last toplevel object ID (NOT the underlying wl_surface) that was "active"
+    /// for this connection.
+    /// This is used to hint the ask and notify scripts about the app's id and name,
+    /// even though this can never actually be perfect -- we can't track precisely
+    /// what might have caused the last filtered request to happen!
+    last_toplevel: Option<u32>,
 }
 
 impl WlMitmState {
@@ -74,6 +99,7 @@ impl WlMitmState {
         WlMitmState {
             config,
             objects: WlObjects::new(),
+            last_toplevel: None,
         }
     }
 
@@ -135,9 +161,54 @@ impl WlMitmState {
             );
 
             self.objects.remove_object(msg.obj_id(), from_client);
+
+            if self.last_toplevel.is_some_and(|id| id == msg.obj_id()) {
+                self.last_toplevel = None;
+            }
         }
 
         true
+    }
+
+    fn prepare_command(
+        &self,
+        msg: &dyn AnyWlParsedMessage<'_>,
+        cmd_str: &str,
+        desc: &str,
+    ) -> tokio::process::Command {
+        let mut cmd = tokio::process::Command::new(cmd_str);
+        cmd.arg(msg.self_object_type().interface());
+        cmd.arg(msg.self_msg_name());
+        cmd.arg(desc);
+        cmd.env("WL_MITM_MSG_JSON", msg.to_json());
+
+        if let Some(last_toplevel) = self.last_toplevel {
+            if let Some(info) = self
+                .objects
+                .get_object_extension::<ToplevelSurfaceInfo>(last_toplevel)
+            {
+                if let Some(ref title) = info.title {
+                    cmd.env("WL_MITM_LAST_TOPLEVEL_TITLE", title);
+                }
+
+                if let Some(ref app_id) = info.app_id {
+                    cmd.env("WL_MITM_LAST_TOPLEVEL_APP_ID", app_id);
+                }
+            }
+        }
+
+        cmd
+    }
+
+    fn update_last_active_surface(&mut self, surface: u32) {
+        if let Some(SurfaceXdgAssociation(xdg_surface)) = self.objects.get_object_extension(surface)
+        {
+            if let Some(XdgToplevelAssociation(xdg_toplevel)) =
+                self.objects.get_object_extension(*xdg_surface)
+            {
+                self.last_toplevel = Some(*xdg_toplevel);
+            }
+        }
     }
 
     /// Returns the number of fds consumed while parsing the message as a concrete Wayland type, and a verdict
@@ -209,6 +280,28 @@ impl WlMitmState {
             );
 
             self.objects.record_object(obj_type, msg.id);
+        } else if let Some(msg) = msg.downcast_ref::<XdgWmBaseGetXdgSurfaceRequest>() {
+            self.objects
+                .put_object_extension(msg.surface, SurfaceXdgAssociation(msg.id));
+        } else if let Some(msg) = msg.downcast_ref::<XdgSurfaceGetToplevelRequest>() {
+            self.objects
+                .put_object_extension(msg.obj_id(), XdgToplevelAssociation(msg.id));
+            self.objects
+                .put_object_extension(msg.id, ToplevelSurfaceInfo::default());
+        } else if let Some(msg) = msg.downcast_ref::<XdgToplevelSetAppIdRequest>() {
+            if let Some(info) = self
+                .objects
+                .get_object_extension_mut::<ToplevelSurfaceInfo>(msg.obj_id())
+            {
+                info.app_id = Some(msg.app_id.to_string());
+            }
+        } else if let Some(msg) = msg.downcast_ref::<XdgToplevelSetTitleRequest>() {
+            if let Some(info) = self
+                .objects
+                .get_object_extension_mut::<ToplevelSurfaceInfo>(msg.obj_id())
+            {
+                info.title = Some(msg.title.to_string());
+            }
         }
 
         // Handle requests configured to be filtered
@@ -232,7 +325,7 @@ impl WlMitmState {
                                 msg.self_msg_name()
                             );
 
-                            let mut cmd = prepare_command(
+                            let mut cmd = self.prepare_command(
                                 &*msg,
                                 ask_cmd,
                                 filtered.desc.as_deref().unwrap_or_else(|| ""),
@@ -280,7 +373,7 @@ impl WlMitmState {
                                 msg.self_msg_name()
                             );
 
-                            let mut cmd = prepare_command(
+                            let mut cmd = self.prepare_command(
                                 &*msg,
                                 notify_cmd,
                                 filtered.desc.as_deref().unwrap_or_else(|| ""),
@@ -375,21 +468,14 @@ impl WlMitmState {
         } else if let Some(msg) = msg.downcast_ref::<WlDisplayDeleteIdEvent>() {
             // Server has acknowledged deletion of an object
             self.objects.remove_object(msg.id, false);
+        } else if let Some(msg) = msg.downcast_ref::<WlPointerEnterEvent>() {
+            self.update_last_active_surface(msg.surface);
+        } else if let Some(msg) = msg.downcast_ref::<WlKeyboardEnterEvent>() {
+            self.update_last_active_surface(msg.surface);
+        } else if let Some(msg) = msg.downcast_ref::<WlTouchDownEvent>() {
+            self.update_last_active_surface(msg.surface);
         }
 
         outcome.allowed()
     }
-}
-
-fn prepare_command(
-    msg: &dyn AnyWlParsedMessage<'_>,
-    cmd_str: &str,
-    desc: &str,
-) -> tokio::process::Command {
-    let mut cmd = tokio::process::Command::new(cmd_str);
-    cmd.arg(msg.self_object_type().interface());
-    cmd.arg(msg.self_msg_name());
-    cmd.arg(desc);
-    cmd.env("WL_MITM_MSG_JSON", msg.to_json());
-    cmd
 }

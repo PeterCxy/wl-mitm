@@ -1,4 +1,8 @@
-use std::{any::Any, collections::HashMap, hash::Hash};
+use std::{
+    any::{Any, TypeId},
+    collections::HashMap,
+    hash::Hash,
+};
 
 use crate::proto::{WL_DISPLAY, WL_DISPLAY_OBJECT_ID};
 
@@ -51,6 +55,7 @@ pub struct WlObjects {
     /// Objects that have been destroyed by the client, but not yet ACK'd by the server
     /// Objects in this state may still receive events from the server.
     objects_half_destroyed: HashMap<u32, WlObjectType>,
+    object_extensions: HashMap<u32, HashMap<TypeId, Box<dyn Any + Send>>>,
     /// u32 "name"s of globals mapped to their object types
     global_names: HashMap<u32, WlObjectType>,
 }
@@ -63,12 +68,14 @@ impl WlObjects {
         WlObjects {
             objects,
             objects_half_destroyed: HashMap::new(),
+            object_extensions: HashMap::new(),
             global_names: Default::default(),
         }
     }
 
     pub fn record_object(&mut self, obj_type: WlObjectType, id: u32) {
         self.objects.insert(id, obj_type);
+        self.object_extensions.remove(&id);
     }
 
     /// Returns [Some] if we have a record of that object ID. However,
@@ -96,10 +103,38 @@ impl WlObjects {
                 return;
             };
             self.objects_half_destroyed.insert(id, old_entry);
+            self.object_extensions.remove(&id);
         } else {
             self.objects.remove(&id);
             self.objects_half_destroyed.remove(&id);
+            self.object_extensions.remove(&id);
         }
+    }
+
+    pub fn put_object_extension<T: Any + Send>(&mut self, id: u32, extension: T) {
+        if self.lookup_object(id).is_none() {
+            // This should not happen but let's ignore extensions on non-existent objects
+            return;
+        }
+
+        self.object_extensions
+            .entry(id)
+            .or_default()
+            .insert(extension.type_id(), Box::new(extension));
+    }
+
+    pub fn get_object_extension<T: Any + Send>(&self, id: u32) -> Option<&T> {
+        self.object_extensions
+            .get(&id)?
+            .get(&TypeId::of::<T>())?
+            .downcast_ref()
+    }
+
+    pub fn get_object_extension_mut<T: Any + Send>(&mut self, id: u32) -> Option<&mut T> {
+        self.object_extensions
+            .get_mut(&id)?
+            .get_mut(&TypeId::of::<T>())?
+            .downcast_mut()
     }
 
     pub fn record_global(&mut self, name: u32, interface: WlObjectType) {

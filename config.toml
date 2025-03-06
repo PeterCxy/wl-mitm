@@ -93,4 +93,4 @@ desc = "overriding clipboard selection"
 interface = "wl_data_offer"
 requests = [ "receive" ]
 action = "notify"
-desc = "foreground application pasted from clipboard or accepted drag and drop"
+desc = "pasted from clipboard or accepted drag and drop"
