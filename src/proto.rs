@@ -1,17 +1,11 @@
 //! Protocol definitions necessary for this MITM proxy
 
-use std::{collections::HashMap, os::fd::OwnedFd, sync::LazyLock};
+use std::{any::TypeId, collections::HashMap, os::fd::OwnedFd, sync::LazyLock};
 
 use crate::{
     codec::WlRawMsg,
     objects::{WlObjectType, WlObjects},
 };
-
-#[derive(PartialEq, Eq)]
-pub enum WlMsgType {
-    Request,
-    Event,
-}
 
 pub enum WaylandProtocolParsingOutcome<T> {
     Ok(T),
@@ -53,7 +47,7 @@ pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
     fn object_type() -> WlObjectType
     where
         Self: Sized;
-    fn msg_type() -> WlMsgType
+    fn static_type_id() -> TypeId
     where
         Self: Sized;
     fn try_from_msg<'obj>(
@@ -85,8 +79,8 @@ pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
     // dyn-available methods
     fn self_opcode(&self) -> u16;
     fn self_object_type(&self) -> WlObjectType;
-    fn self_msg_type(&self) -> WlMsgType;
     fn self_msg_name(&self) -> &'static str;
+    fn self_static_type_id(&self) -> TypeId;
 
     /// The object ID which this message acts upon
     fn obj_id(&self) -> u32;
@@ -111,10 +105,11 @@ pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
 }
 
 /// A version of [WlParsedMessage] that supports downcasting. By implementing this
-/// trait, you promise that the (object_type, msg_type, opcode) triple is unique, i.e.
-/// it does not overlap with any other implementation of this trait.
+/// trait, you assert that the [WlParsedMessage::static_type_id] and
+/// [WlParsedMessage::self_static_type_id] implementations are sound: they MUST
+/// return the [TypeId] of the implementing struct, assuming it had static lifetime.
 ///
-/// In addition, any implementor also asserts that the type implementing this trait
+/// Any implementor also asserts that the type implementing this trait
 /// does not contain any lifetime other than 'a, and that the implenetor struct is
 /// _covariant_ with respect to lifetime 'a.
 ///
@@ -125,28 +120,16 @@ impl<'out, 'data: 'out> dyn AnyWlParsedMessage<'data> + 'data {
     /// Downcast the type-erased, borrowed Wayland message to a concrete type. Note that the
     /// safety of this relies on a few invariants:
     ///
-    /// 1. The (object_type, msg_type, opcode) triple is unique (guaranteed by unsafe trait)
-    /// 2. 'data outlives 'out (guaranteed by the trait bound above)
-    /// 3. The type implementing [AnyWlParsedMessage] does not contain any lifetime other than
+    /// 1. 'data outlives 'out (guaranteed by the trait bound above)
+    /// 2. The type implementing [AnyWlParsedMessage] does not contain any lifetime other than
     ///    'data (or 'a in the trait's definition).
-    /// 4. No type other than those contained in this mod can implement [AnyWlParsedMessage]
-    ///    (enforced by the private trait bound [__private::WlParsedMessagePrivate])
     pub fn downcast_ref<T: AnyWlParsedMessage<'data> + 'data>(&'out self) -> Option<&'out T> {
-        if self.self_opcode() != T::opcode() {
+        if self.self_static_type_id() != T::static_type_id() {
             return None;
         }
 
-        if self.self_object_type() != T::object_type() {
-            return None;
-        }
-
-        if self.self_msg_type() != T::msg_type() {
-            return None;
-        }
-
-        // SAFETY: We have verified the opcode, type, and msg type all match up
-        // As per safety guarantee of [AnyWlParsedMessage], we've now narrowed
-        // [self] down to one concrete type.
+        // SAFETY: We have verified the type IDs match up.
+        //
         // In addition, because [AnyWlParsedMessage]'s contract requires that no
         // lifetime other than 'a ('data) is contained in the implemetor, the
         // output type T cannot contain another lifetime that may be transmuted

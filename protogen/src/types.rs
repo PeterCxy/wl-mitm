@@ -90,7 +90,6 @@ impl WlMsg {
         let opcode = self.opcode;
         let interface_name_snake_upper =
             format_ident!("{}", self.interface_name_snake.to_uppercase());
-        let msg_type = format_ident!("{}", self.msg_type.as_str());
         let msg_name_snake = &self.name_snake;
 
         let struct_name = format_ident!("{}", self.struct_name());
@@ -205,16 +204,16 @@ impl WlMsg {
                     crate::proto::#interface_name_snake_upper
                 }
 
-                fn msg_type() -> crate::proto::WlMsgType {
-                    crate::proto::WlMsgType::#msg_type
-                }
-
-                fn self_msg_type(&self) -> crate::proto::WlMsgType {
-                    crate::proto::WlMsgType::#msg_type
-                }
-
                 fn self_msg_name(&self) -> &'static str {
                     #msg_name_snake
+                }
+
+                fn static_type_id() -> std::any::TypeId {
+                    std::any::TypeId::of::<#struct_name<'static>>()
+                }
+
+                fn self_static_type_id(&self) -> std::any::TypeId {
+                    std::any::TypeId::of::<#struct_name<'static>>()
                 }
 
                 #[allow(unused, private_interfaces, non_snake_case)]
