@@ -45,8 +45,16 @@ allowed_globals = [
     # Window management
     "xdg_wm_base",
     "zxdg_decoration_manager_v1",
+    # Presentation time (used by video playback)
+    "wp_presentation",
+    # Surface scaling
+    "wp_viewporter",
     # Linux DMA-BUF
     "zwp_linux_dmabuf_v1",
+    # Linux DRM (for clients requiring GPU accel)
+    "wl_drm",
+    "wp_drm_lease_device_v1",
+    "wp_linux_drm_syncobj_manager_v1",
     # Clipboard manager from wlroots, used for the filter example below.
     "zwlr_data_control_manager_v1"
 ]
