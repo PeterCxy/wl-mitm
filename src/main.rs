@@ -213,14 +213,16 @@ impl<'a> ConnDuplex<'a> {
     pub async fn run_to_completion(mut self) -> io::Result<()> {
         loop {
             tokio::select! {
+                biased;
                 msg = self.upstream_read.read() => {
                     control_flow!(self.handle_s2c_event(msg?).await?);
                 }
+                res = self.downstream_write.dequeue_write() => res?,
+
                 msg = self.downstream_read.read() => {
                     control_flow!(self.handle_c2s_request(msg?).await?);
                 }
                 res = self.upstream_write.dequeue_write() => res?,
-                res = self.downstream_write.dequeue_write() => res?,
             }
         }
 
