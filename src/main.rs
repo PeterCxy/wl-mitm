@@ -141,7 +141,7 @@ impl<'a> ConnDuplex<'a> {
 
                 match verdict {
                     WlMitmVerdict::Allowed => {
-                        self.downstream_write.queue_write(wl_raw_msg);
+                        self.downstream_write.write(wl_raw_msg).await?;
                     }
                     WlMitmVerdict::Terminate => {
                         return Err(io::Error::new(
@@ -180,18 +180,20 @@ impl<'a> ConnDuplex<'a> {
 
                 match verdict {
                     WlMitmVerdict::Allowed => {
-                        self.upstream_write.queue_write(wl_raw_msg);
+                        self.upstream_write.write(wl_raw_msg).await?;
                     }
                     WlMitmVerdict::Rejected(error_code) => {
-                        self.downstream_write.queue_write(
-                            WlDisplayErrorEvent::new(
-                                WL_DISPLAY_OBJECT_ID,
-                                wl_raw_msg.obj_id,
-                                error_code,
-                                "Rejected by wl-mitm",
+                        self.downstream_write
+                            .write(
+                                WlDisplayErrorEvent::new(
+                                    WL_DISPLAY_OBJECT_ID,
+                                    wl_raw_msg.obj_id,
+                                    error_code,
+                                    "Rejected by wl-mitm",
+                                )
+                                .build(),
                             )
-                            .build(),
-                        );
+                            .await?;
                     }
                     WlMitmVerdict::Terminate => {
                         return Err(io::Error::new(
@@ -213,11 +215,6 @@ impl<'a> ConnDuplex<'a> {
     pub async fn run_to_completion(mut self) -> io::Result<()> {
         loop {
             tokio::select! {
-                biased;
-
-                res = self.downstream_write.dequeue_write() => res?,
-                res = self.upstream_write.dequeue_write() => res?,
-
                 msg = self.upstream_read.read() => {
                     control_flow!(self.handle_s2c_event(msg?).await?);
                 }

@@ -145,6 +145,28 @@ impl<'a> WlMsgWriter<'a> {
         self.write_queue.push(msg);
     }
 
+    pub async fn write(&mut self, msg: WlRawMsg) -> io::Result<()> {
+        let (buf, fds) = msg.into_parts();
+
+        let mut written = 0usize;
+
+        while written < buf.len() {
+            self.egress.writable().await?;
+
+            let res = self
+                .egress
+                .send_with_fd(&buf[written..], unsafe { std::mem::transmute(fds.deref()) });
+
+            match res {
+                Ok(new_written) => written += new_written,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => continue,
+                Err(e) => return Err(e),
+            }
+        }
+
+        Ok(())
+    }
+
     /// Try to make progress by flushing some of the queued up messages into the stream.
     /// When this resolves, note that we might have only partially written. In that
     /// case the buffer is saved internally in this structure.
