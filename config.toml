@@ -30,6 +30,17 @@ ask_cmd = "contrib/ask-bemenu.sh"
 # will not be filtered whatever this command does.
 notify_cmd = "contrib/notify-libnotify.sh"
 
+[logging]
+# If true, log all known requests (client -> server) at the DEBUG level
+# log_all_requests = false
+
+# If true, log all known events (server -> client) at the DEBUG level
+# log_all_events = false
+
+# Set the maximum log level output to stdout
+# Overrides the RUST_LOG environmet variable if set
+# log_level = "info"
+
 [filter]
 # A list of Wayland global singleton objects that's allowed
 # Each of them generally correspond to an implemented protocol

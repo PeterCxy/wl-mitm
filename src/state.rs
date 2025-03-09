@@ -243,6 +243,17 @@ impl WlMitmState {
 
         outcome.set_consumed_fds(msg.num_consumed_fds());
 
+        if self.config.logging.log_all_requests {
+            debug!(
+                raw_payload_bytes = ?raw_msg.payload(),
+                num_fds = raw_msg.fds.len(),
+                num_consumed_fds = msg.num_consumed_fds(),
+                "{}::{}",
+                msg.self_object_type().interface(),
+                msg.self_msg_name(),
+            )
+        }
+
         // To get here, the object referred to in raw_msg must exist, but it might already be destroyed by the client
         // In that case, the client is broken!
         if self.objects.is_half_destroyed(msg.obj_id()) {
@@ -438,6 +449,17 @@ impl WlMitmState {
         };
 
         outcome.set_consumed_fds(msg.num_consumed_fds());
+
+        if self.config.logging.log_all_events {
+            debug!(
+                raw_payload_bytes = ?raw_msg.payload(),
+                num_fds = raw_msg.fds.len(),
+                num_consumed_fds = msg.num_consumed_fds(),
+                "{}::{}",
+                msg.self_object_type().interface(),
+                msg.self_msg_name(),
+            )
+        }
 
         if !self.handle_created_or_destroyed_objects(&*msg, false) {
             return outcome.terminate();

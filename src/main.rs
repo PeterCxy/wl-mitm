@@ -6,7 +6,7 @@ mod proto;
 mod config;
 mod state;
 
-use std::{io, ops::ControlFlow, path::Path, sync::Arc};
+use std::{io, ops::ControlFlow, path::Path, str::FromStr, sync::Arc};
 
 use codec::DecoderOutcome;
 use config::Config;
@@ -14,12 +14,10 @@ use io_util::{WlMsgReader, WlMsgWriter};
 use proto::{WL_DISPLAY_OBJECT_ID, WlConstructableMessage, WlDisplayErrorEvent};
 use state::{WlMitmOutcome, WlMitmState, WlMitmVerdict};
 use tokio::net::{UnixListener, UnixStream};
-use tracing::{Instrument, Level, debug, error, info, span, warn};
+use tracing::{Instrument, Level, error, info, level_filters::LevelFilter, span, warn};
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt::init();
-
     let mut conf_file = "config.toml";
 
     let args: Vec<_> = std::env::args().collect();
@@ -32,6 +30,15 @@ async fn main() {
         .expect("Can't read config file");
     let config: Arc<Config> =
         Arc::new(toml::from_str(&conf_str).expect("Can't decode config file"));
+
+    let mut tracing_builder = tracing_subscriber::fmt();
+
+    if let Some(ref level) = config.logging.log_level {
+        tracing_builder = tracing_builder
+            .with_max_level(LevelFilter::from_str(level).expect("Invalid log level"));
+    }
+
+    tracing_builder.init();
 
     let src = config.socket.upstream_socket_path();
     let proxied = config.socket.listen_socket_path();
@@ -119,13 +126,6 @@ impl<'a> ConnDuplex<'a> {
     ) -> io::Result<ControlFlow<()>> {
         match decoded_raw {
             codec::DecoderOutcome::Decoded(mut wl_raw_msg) => {
-                debug!(
-                    obj_id = wl_raw_msg.obj_id,
-                    opcode = wl_raw_msg.opcode,
-                    num_fds = wl_raw_msg.fds.len(),
-                    "s2c event"
-                );
-
                 let WlMitmOutcome(num_consumed_fds, mut verdict) =
                     self.state.on_s2c_event(&wl_raw_msg).await;
                 self.upstream_read
@@ -165,13 +165,6 @@ impl<'a> ConnDuplex<'a> {
     ) -> io::Result<ControlFlow<()>> {
         match decoded_raw {
             codec::DecoderOutcome::Decoded(mut wl_raw_msg) => {
-                debug!(
-                    obj_id = wl_raw_msg.obj_id,
-                    opcode = wl_raw_msg.opcode,
-                    num_fds = wl_raw_msg.fds.len(),
-                    "c2s request"
-                );
-
                 let WlMitmOutcome(num_consumed_fds, mut verdict) =
                     self.state.on_c2s_request(&wl_raw_msg).await;
                 self.downstream_read

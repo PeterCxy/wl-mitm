@@ -9,7 +9,10 @@ use serde_derive::Deserialize;
 #[derive(Deserialize)]
 pub struct Config {
     pub socket: WlSockets,
+    #[serde(default)]
     pub exec: WlExec,
+    #[serde(default)]
+    pub logging: WlLogging,
     pub filter: WlFilter,
 }
 
@@ -52,7 +55,16 @@ impl WlSockets {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Default, Deserialize)]
+pub struct WlLogging {
+    #[serde(default)]
+    pub log_all_requests: bool,
+    #[serde(default)]
+    pub log_all_events: bool,
+    pub log_level: Option<String>,
+}
+
+#[derive(Default, Deserialize)]
 pub struct WlExec {
     pub ask_cmd: Option<String>,
     pub notify_cmd: Option<String>,
