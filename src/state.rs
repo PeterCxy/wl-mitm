@@ -245,6 +245,7 @@ impl WlMitmState {
 
         if self.config.logging.log_all_requests {
             debug!(
+                obj_id = msg.obj_id(),
                 raw_payload_bytes = ?raw_msg.payload(),
                 num_fds = raw_msg.fds.len(),
                 num_consumed_fds = msg.num_consumed_fds(),
@@ -452,6 +453,7 @@ impl WlMitmState {
 
         if self.config.logging.log_all_events {
             debug!(
+                obj_id = msg.obj_id(),
                 raw_payload_bytes = ?raw_msg.payload(),
                 num_fds = raw_msg.fds.len(),
                 num_consumed_fds = msg.num_consumed_fds(),
