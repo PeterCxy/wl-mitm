@@ -14,7 +14,7 @@ use io_util::{WlMsgReader, WlMsgWriter};
 use proto::{WL_DISPLAY_OBJECT_ID, WlConstructableMessage, WlDisplayErrorEvent};
 use state::{WlMitmOutcome, WlMitmState, WlMitmVerdict};
 use tokio::net::{UnixListener, UnixStream};
-use tracing::{Instrument, Level, debug, error, info, span};
+use tracing::{Instrument, Level, debug, error, info, span, warn};
 
 #[tokio::main]
 async fn main() {
@@ -79,6 +79,7 @@ macro_rules! control_flow {
 }
 
 struct ConnDuplex<'a> {
+    config: Arc<Config>,
     upstream_read: WlMsgReader<'a>,
     upstream_write: WlMsgWriter<'a>,
     downstream_read: WlMsgReader<'a>,
@@ -88,6 +89,7 @@ struct ConnDuplex<'a> {
 
 impl<'a> ConnDuplex<'a> {
     pub fn new(
+        config: Arc<Config>,
         state: WlMitmState,
         upstream_conn: &'a mut UnixStream,
         downstream_conn: &'a mut UnixStream,
@@ -102,6 +104,7 @@ impl<'a> ConnDuplex<'a> {
         let downstream_write = WlMsgWriter::new(downstream_write);
 
         Self {
+            config,
             upstream_read,
             upstream_write,
             downstream_read,
@@ -123,10 +126,18 @@ impl<'a> ConnDuplex<'a> {
                     "s2c event"
                 );
 
-                let WlMitmOutcome(num_consumed_fds, verdict) =
+                let WlMitmOutcome(num_consumed_fds, mut verdict) =
                     self.state.on_s2c_event(&wl_raw_msg).await;
                 self.upstream_read
                     .return_unused_fds(&mut wl_raw_msg, num_consumed_fds);
+
+                if !verdict.is_allowed() && self.config.filter.dry_run {
+                    warn!(
+                        verdict = ?verdict,
+                        "Last event would have been filtered! (see prior logs for reason)"
+                    );
+                    verdict = WlMitmVerdict::Allowed;
+                }
 
                 match verdict {
                     WlMitmVerdict::Allowed => {
@@ -161,10 +172,18 @@ impl<'a> ConnDuplex<'a> {
                     "c2s request"
                 );
 
-                let WlMitmOutcome(num_consumed_fds, verdict) =
+                let WlMitmOutcome(num_consumed_fds, mut verdict) =
                     self.state.on_c2s_request(&wl_raw_msg).await;
                 self.downstream_read
                     .return_unused_fds(&mut wl_raw_msg, num_consumed_fds);
+
+                if !verdict.is_allowed() && self.config.filter.dry_run {
+                    warn!(
+                        verdict = ?verdict,
+                        "Last request would have been filtered! (see prior logs for reason)"
+                    );
+                    verdict = WlMitmVerdict::Allowed;
+                }
 
                 match verdict {
                     WlMitmVerdict::Allowed => {
@@ -222,9 +241,9 @@ pub async fn handle_conn(
     mut downstream_conn: UnixStream,
 ) -> io::Result<()> {
     let mut upstream_conn = UnixStream::connect(src_path).await?;
-    let state = WlMitmState::new(config);
+    let state = WlMitmState::new(config.clone());
 
-    let duplex = ConnDuplex::new(state, &mut upstream_conn, &mut downstream_conn);
+    let duplex = ConnDuplex::new(config, state, &mut upstream_conn, &mut downstream_conn);
 
     duplex.run_to_completion().await
 }

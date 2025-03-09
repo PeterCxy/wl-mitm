@@ -16,6 +16,7 @@ use crate::{
 };
 
 /// What to do for a message?
+#[derive(Debug)]
 pub enum WlMitmVerdict {
     /// This message is allowed. Pass it through to the opposite end.
     Allowed,
@@ -25,6 +26,12 @@ pub enum WlMitmVerdict {
     Rejected(u32),
     /// Terminate this entire session. Something is off.
     Terminate,
+}
+
+impl WlMitmVerdict {
+    pub fn is_allowed(&self) -> bool {
+        matches!(self, WlMitmVerdict::Allowed)
+    }
 }
 
 impl Default for WlMitmVerdict {
@@ -259,6 +266,12 @@ impl WlMitmState {
             // to bind to it; if it does, it's likely a malicious client!
             // So, we simply remove these messages from the stream, which will cause the Wayland server to error out.
             let Some(obj_type) = self.objects.lookup_global(msg.name) else {
+                warn!(
+                    interface = msg.name,
+                    version = msg.id_interface_version,
+                    obj_id = msg.id,
+                    "Client binding non-existent or filtered interface"
+                );
                 return outcome.terminate();
             };
 

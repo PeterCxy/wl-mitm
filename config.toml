@@ -59,6 +59,11 @@ allowed_globals = [
     "zwlr_data_control_manager_v1"
 ]
 
+# When set to true, do not actually filter anything -- only emit a
+# warning when a filter would have been triggered.
+# Defaults to false
+# dry_run = false
+
 # A list of requests we'd like to filter
 [[filter.requests]]
 # The interface name in question

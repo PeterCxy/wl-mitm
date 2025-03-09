@@ -63,6 +63,8 @@ pub struct WlFilter {
     pub allowed_globals: HashSet<String>,
     #[serde(deserialize_with = "deserialize_filter_requests")]
     pub requests: HashMap<String, Vec<WlFilterRequest>>,
+    #[serde(default)]
+    pub dry_run: bool,
 }
 
 #[derive(Deserialize)]
