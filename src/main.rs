@@ -215,6 +215,8 @@ impl<'a> ConnDuplex<'a> {
     pub async fn run_to_completion(mut self) -> io::Result<()> {
         loop {
             tokio::select! {
+                biased;
+
                 msg = self.upstream_read.read() => {
                     control_flow!(self.handle_s2c_event(msg?).await?);
                 }
