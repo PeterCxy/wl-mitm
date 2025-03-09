@@ -24,7 +24,7 @@ async fn main() {
 
     let args: Vec<_> = std::env::args().collect();
     if args.len() >= 2 {
-        conf_file = &args[2];
+        conf_file = &args[1];
     }
 
     let conf_str = tokio::fs::read_to_string(conf_file)
