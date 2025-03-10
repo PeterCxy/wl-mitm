@@ -52,6 +52,32 @@ This repo contains an example configuration at `config.toml` that allows a few b
 desktop apps to function. It also demonstrates the use of `ask_cmd` and `notify_cmd` by defining filters on clipboard-related
 requests. Detailed explanation of the configuration format is also contained in the example.
 
+To launch a program under `wl-mitm`, set its `WAYLAND_DISPLAY` env variable to whatever `listen` is under `[socket]` in `config.toml`.
+Note that you may want to use another container and pass _only_ the `wl-mitm`'d socket through for proper isolation.
+
+A Word on Filtering
+---
+
+`wl-mitm` gives you a ton of flexibility on filtering. In particular, you are allowed to filter _any_ request on _any_ object
+in `config.toml`.
+
+However, please keep in mind that while most requests can be filtered, Wayland (and most of its protocols) is not designed to handle
+this type of filtering. While a lot of requests can be filtered without consequences, there are a significant number of them that
+will result in irrecoverable de-sync between the client and the server. For example, _any_ message that creates a new object ID
+(of the type `new_id`) _will_ result in undefined behavior if filtered.
+
+`wl-mitm` does provide the ability to _reject_ a request with an explicit error. Unfortunately, errors in Wayland are usually
+fatal, and clients are not designed to recover from them.
+
+The most reliable (and the only protocol-compliant) way to prevent a client from using certain features is to block the
+entire global object where that feature resides. These are usually "manager" objects that live in the global registry,
+and can be blocked in `allowed_globals` inside `config.toml`. Each extension protocol has to expose _some_ manager object
+in order for clients to access their functionalities, and thus blocking them there will prevent clients from even knowing
+their existence. However, globals can't be selectively blocked using `ask_cmd`, because clients usually bind to them as soon
+as they start.
+
+Since `notify_cmd` never blocks a request, it is safe to use on _any_ request filter.
+
 XWayland
 ---
 
