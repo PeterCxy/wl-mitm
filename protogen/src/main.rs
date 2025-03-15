@@ -206,33 +206,44 @@ fn handle_interface(
     let mut event_opcode = 0;
     let mut request_opcode = 0;
 
+    let mut add_msg = |reader: &mut quick_xml::Reader<&[u8]>,
+                       e: quick_xml::events::BytesStart<'_>,
+                       is_empty: bool| {
+        let start_tag =
+            str::from_utf8(e.local_name().into_inner()).expect("Unable to parse start tag");
+        if start_tag == "event" {
+            // An event! Increment our opcode tracker for it!
+            event_opcode += 1;
+            msgs.push(handle_request_or_event(
+                reader,
+                event_opcode - 1,
+                WlMsgType::Event,
+                interface_name_snake,
+                e,
+                is_empty,
+            ));
+        } else if start_tag == "request" {
+            // A request! Increment our opcode tracker for it!
+            request_opcode += 1;
+            msgs.push(handle_request_or_event(
+                reader,
+                request_opcode - 1,
+                WlMsgType::Request,
+                interface_name_snake,
+                e,
+                is_empty,
+            ));
+        };
+    };
+
     loop {
         match reader.read_event().expect("Unable to parse XML file") {
             Event::Eof => panic!("Unexpected EOF"),
             Event::Start(e) => {
-                let start_tag =
-                    str::from_utf8(e.local_name().into_inner()).expect("Unable to parse start tag");
-                if start_tag == "event" {
-                    // An event! Increment our opcode tracker for it!
-                    event_opcode += 1;
-                    msgs.push(handle_request_or_event(
-                        reader,
-                        event_opcode - 1,
-                        WlMsgType::Event,
-                        interface_name_snake,
-                        e,
-                    ));
-                } else if start_tag == "request" {
-                    // A request! Increment our opcode tracker for it!
-                    request_opcode += 1;
-                    msgs.push(handle_request_or_event(
-                        reader,
-                        request_opcode - 1,
-                        WlMsgType::Request,
-                        interface_name_snake,
-                        e,
-                    ));
-                };
+                add_msg(reader, e, false);
+            }
+            Event::Empty(e) => {
+                add_msg(reader, e, true);
             }
             Event::End(e) if e.local_name() == start.local_name() => break,
             _ => continue,
@@ -251,6 +262,7 @@ fn handle_request_or_event(
     msg_type: WlMsgType,
     interface_name_snake: &str,
     start: quick_xml::events::BytesStart<'_>,
+    is_empty: bool,
 ) -> WlMsg {
     let name_attr = start
         .attributes()
@@ -278,77 +290,80 @@ fn handle_request_or_event(
     // Load arguments and their types from XML
     let mut args: Vec<(String, WlArgType)> = Vec::new();
 
-    loop {
-        match reader.read_event().expect("Unable to parse XML file") {
-            Event::Eof => panic!("Unexpected EOF"),
-            Event::Empty(e)
-                if str::from_utf8(e.local_name().into_inner()).expect("utf8 encoding error")
-                    == "arg" =>
-            {
-                let mut name: Option<String> = None;
-                let mut tt: Option<WlArgType> = None;
-                let mut interface_name: Option<String> = None;
+    if !is_empty {
+        loop {
+            match reader.read_event().expect("Unable to parse XML file") {
+                Event::Eof => panic!("Unexpected EOF"),
+                Event::Empty(e)
+                    if str::from_utf8(e.local_name().into_inner())
+                        .expect("utf8 encoding error")
+                        == "arg" =>
+                {
+                    let mut name: Option<String> = None;
+                    let mut tt: Option<WlArgType> = None;
+                    let mut interface_name: Option<String> = None;
 
-                for attr in e.attributes() {
-                    let attr = attr.expect("attr parsing error");
-                    let attr_name = str::from_utf8(attr.key.local_name().into_inner())
-                        .expect("utf8 encoding error");
-                    if attr_name == "name" {
-                        name = Some(
-                            str::from_utf8(&attr.value)
-                                .expect("utf8 encoding error")
-                                .to_string(),
-                        );
-                    } else if attr_name == "type" {
-                        tt = Some(WlArgType::parse(
-                            str::from_utf8(&attr.value).expect("utf8 encoding error"),
-                        ));
-                    } else if attr_name == "interface" {
-                        interface_name = Some(
-                            str::from_utf8(&attr.value)
-                                .expect("utf8 encoding error")
-                                .to_string(),
-                        );
+                    for attr in e.attributes() {
+                        let attr = attr.expect("attr parsing error");
+                        let attr_name = str::from_utf8(attr.key.local_name().into_inner())
+                            .expect("utf8 encoding error");
+                        if attr_name == "name" {
+                            name = Some(
+                                str::from_utf8(&attr.value)
+                                    .expect("utf8 encoding error")
+                                    .to_string(),
+                            );
+                        } else if attr_name == "type" {
+                            tt = Some(WlArgType::parse(
+                                str::from_utf8(&attr.value).expect("utf8 encoding error"),
+                            ));
+                        } else if attr_name == "interface" {
+                            interface_name = Some(
+                                str::from_utf8(&attr.value)
+                                    .expect("utf8 encoding error")
+                                    .to_string(),
+                            );
+                        }
                     }
-                }
 
-                if let Some(ref mut name) = name {
-                    if name == "type" {
-                        *name = "_type".to_string();
-                    } else if name == "msg" {
-                        *name = "_msg".to_string();
+                    if let Some(ref mut name) = name {
+                        if name == "type" {
+                            *name = "_type".to_string();
+                        } else if name == "msg" {
+                            *name = "_msg".to_string();
+                        }
                     }
-                }
 
-                if let Some(WlArgType::NewId(_)) = tt {
-                    if let Some(interface_name) = interface_name {
-                        tt.as_mut().unwrap().set_interface_name(interface_name);
-                    } else {
-                        // Unspecified interface for new_id; special serialization format!
-                        args.push((
-                            format!(
-                                "{}_interface_name",
-                                name.as_ref().expect("needs an arg name!")
-                            ),
-                            WlArgType::String,
-                        ));
-                        args.push((
-                            format!(
-                                "{}_interface_version",
-                                name.as_ref().expect("needs an arg name!")
-                            ),
-                            WlArgType::Uint,
-                        ))
+                    if let Some(WlArgType::NewId(_)) = tt {
+                        if let Some(interface_name) = interface_name {
+                            tt.as_mut().unwrap().set_interface_name(interface_name);
+                        } else {
+                            // Unspecified interface for new_id; special serialization format!
+                            args.push((
+                                format!(
+                                    "{}_interface_name",
+                                    name.as_ref().expect("needs an arg name!")
+                                ),
+                                WlArgType::String,
+                            ));
+                            args.push((
+                                format!(
+                                    "{}_interface_version",
+                                    name.as_ref().expect("needs an arg name!")
+                                ),
+                                WlArgType::Uint,
+                            ))
+                        }
                     }
-                }
 
-                args.push((
-                    name.expect("args must have a name"),
-                    tt.expect("args must have a type"),
-                ));
+                    args.push((
+                        name.expect("args must have a name"),
+                        tt.expect("args must have a type"),
+                    ));
+                }
+                Event::End(e) if e.local_name() == start.local_name() => break,
+                _ => continue,
             }
-            Event::End(e) if e.local_name() == start.local_name() => break,
-            _ => continue,
         }
     }
 
