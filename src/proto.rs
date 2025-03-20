@@ -35,27 +35,27 @@ impl<T> WaylandProtocolParsingOutcome<T> {
 
 /// Internal module used to seal the [WlParsedMessage] trait
 mod __private {
-    pub(super) trait WlParsedMessagePrivate: Send {}
+    pub(super) trait WlParsedMessagePrivate: Sized {}
     pub(super) struct WlParsedMessagePrivateToken;
 }
 
 #[allow(private_bounds, private_interfaces)]
 pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
-    fn opcode() -> u16
-    where
-        Self: Sized;
-    fn object_type() -> WlObjectType
-    where
-        Self: Sized;
-    fn static_type_id() -> TypeId
-    where
-        Self: Sized;
+    fn opcode() -> u16;
+    fn object_type() -> WlObjectType;
+    fn msg_name() -> &'static str;
+    /// Is this request / event a destructor? That is, does it destroy [Self::obj_id()]?
+    fn is_destructor() -> bool;
+    /// How many fds have been consumed in parsing this message?
+    /// This is used to return any unused fds to the decoder.
+    fn num_consumed_fds() -> usize;
+
     fn try_from_msg<'obj>(
         objects: &'obj WlObjects,
         msg: &'a WlRawMsg,
     ) -> WaylandProtocolParsingOutcome<Self>
     where
-        Self: Sized + 'a,
+        Self: 'a,
     {
         // Verify object type and opcode
         if objects.lookup_object(msg.obj_id) != Some(Self::object_type()) {
@@ -74,19 +74,10 @@ pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
         _token: __private::WlParsedMessagePrivateToken,
     ) -> WaylandProtocolParsingOutcome<Self>
     where
-        Self: Sized + 'a;
-
-    // dyn-available methods
-    fn self_opcode(&self) -> u16;
-    fn self_object_type(&self) -> WlObjectType;
-    fn self_msg_name(&self) -> &'static str;
-    fn self_static_type_id(&self) -> TypeId;
+        Self: 'a;
 
     /// The object ID which this message acts upon
-    fn obj_id(&self) -> u32;
-
-    /// Is this request / event a destructor? That is, does it destroy [Self::obj_id()]?
-    fn is_destructor(&self) -> bool;
+    fn _obj_id(&self) -> u32;
 
     /// List of (object id, object type) pairs created by this message
     /// Note that this only includes objects created with a fixed, known interface
@@ -94,27 +85,79 @@ pub trait WlParsedMessage<'a>: __private::WlParsedMessagePrivate {
     /// serialized differently, and are not included here. However, the only
     /// widely-used message with that capability is [WlRegistryBindRequest],
     /// which is already handled separately on its own.
-    fn known_objects_created(&self) -> Option<Vec<(u32, WlObjectType)>>;
+    fn _known_objects_created(&self) -> Option<Vec<(u32, WlObjectType)>>;
 
     /// Serialize this message into a JSON string, for use with ask scripts
-    fn to_json(&self) -> String;
-
-    /// How many fds have been consumed in parsing this message?
-    /// This is used to return any unused fds to the decoder.
-    fn num_consumed_fds(&self) -> usize;
+    fn _to_json(&self) -> String;
 }
 
 /// A version of [WlParsedMessage] that supports downcasting. By implementing this
-/// trait, you assert that the [WlParsedMessage::static_type_id] and
-/// [WlParsedMessage::self_static_type_id] implementations are sound: they MUST
-/// return the [TypeId] of the implementing struct, assuming it had static lifetime.
+/// trait, you assert that the [DowncastableWlParsedMessage::Static] MUST correspond
+/// to a version of the implementor type with a static lifetime.
 ///
 /// Any implementor also asserts that the type implementing this trait
 /// does not contain any lifetime other than 'a, and that the implenetor struct is
 /// _covariant_ with respect to lifetime 'a.
 ///
 /// This is required for the soundness of the downcast_ref implementation.
-pub unsafe trait AnyWlParsedMessage<'a>: WlParsedMessage<'a> {}
+pub unsafe trait DowncastableWlParsedMessage<'a>: Send + WlParsedMessage<'a> {
+    type Static: 'static;
+}
+
+/// The implementation of dyn-available methods and downcasting for
+/// [DowncastableWlParsedMessage]
+pub trait AnyWlParsedMessage<'a>: Send {
+    fn static_type_id(&self) -> TypeId;
+    fn opcode(&self) -> u16;
+    fn object_type(&self) -> WlObjectType;
+    fn msg_name(&self) -> &'static str;
+    fn is_destructor(&self) -> bool;
+    fn obj_id(&self) -> u32;
+    fn known_objects_created(&self) -> Option<Vec<(u32, WlObjectType)>>;
+    fn to_json(&self) -> String;
+    fn num_consumed_fds(&self) -> usize;
+}
+
+impl<'a, T> AnyWlParsedMessage<'a> for T
+where
+    T: DowncastableWlParsedMessage<'a>,
+{
+    fn static_type_id(&self) -> TypeId {
+        TypeId::of::<T::Static>()
+    }
+
+    fn opcode(&self) -> u16 {
+        T::opcode()
+    }
+
+    fn object_type(&self) -> WlObjectType {
+        T::object_type()
+    }
+
+    fn msg_name(&self) -> &'static str {
+        T::msg_name()
+    }
+
+    fn is_destructor(&self) -> bool {
+        T::is_destructor()
+    }
+
+    fn obj_id(&self) -> u32 {
+        T::_obj_id(self)
+    }
+
+    fn known_objects_created(&self) -> Option<Vec<(u32, WlObjectType)>> {
+        T::_known_objects_created(self)
+    }
+
+    fn to_json(&self) -> String {
+        T::_to_json(self)
+    }
+
+    fn num_consumed_fds(&self) -> usize {
+        T::num_consumed_fds()
+    }
+}
 
 impl<'out, 'data: 'out> dyn AnyWlParsedMessage<'data> + 'data {
     /// Downcast the type-erased, borrowed Wayland message to a concrete type. Note that the
@@ -123,8 +166,12 @@ impl<'out, 'data: 'out> dyn AnyWlParsedMessage<'data> + 'data {
     /// 1. 'data outlives 'out (guaranteed by the trait bound above)
     /// 2. The type implementing [AnyWlParsedMessage] does not contain any lifetime other than
     ///    'data (or 'a in the trait's definition).
-    pub fn downcast_ref<T: AnyWlParsedMessage<'data> + 'data>(&'out self) -> Option<&'out T> {
-        if self.self_static_type_id() != T::static_type_id() {
+    pub fn downcast_ref<
+        T: AnyWlParsedMessage<'data> + DowncastableWlParsedMessage<'data> + 'data,
+    >(
+        &'out self,
+    ) -> Option<&'out T> {
+        if self.static_type_id() != TypeId::of::<T::Static>() {
             return None;
         }
 
@@ -154,7 +201,7 @@ pub trait WlMsgParserFn: Send + Sync {
 /// Messages that can be converted back to [WlRawMsg]
 pub trait WlConstructableMessage<'a>: Sized + WlParsedMessage<'a> {
     fn build(&self) -> WlRawMsg {
-        WlRawMsg::build(self.obj_id(), Self::opcode(), |buf, fds| {
+        WlRawMsg::build(self._obj_id(), Self::opcode(), |buf, fds| {
             self.build_inner(buf, fds)
         })
     }

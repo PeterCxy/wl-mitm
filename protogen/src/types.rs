@@ -192,28 +192,20 @@ impl WlMsg {
                     #opcode
                 }
 
-                fn self_opcode(&self) -> u16 {
-                    #opcode
-                }
-
                 fn object_type() -> crate::objects::WlObjectType {
                     crate::proto::#interface_name_snake_upper
                 }
 
-                fn self_object_type(&self) -> crate::objects::WlObjectType {
-                    crate::proto::#interface_name_snake_upper
-                }
-
-                fn self_msg_name(&self) -> &'static str {
+                fn msg_name() -> &'static str {
                     #msg_name_snake
                 }
 
-                fn static_type_id() -> std::any::TypeId {
-                    std::any::TypeId::of::<#struct_name<'static>>()
+                fn is_destructor() -> bool {
+                    #is_destructor
                 }
 
-                fn self_static_type_id(&self) -> std::any::TypeId {
-                    std::any::TypeId::of::<#struct_name<'static>>()
+                fn num_consumed_fds() -> usize {
+                    #num_consumed_fds
                 }
 
                 #[allow(unused, private_interfaces, non_snake_case)]
@@ -231,28 +223,22 @@ impl WlMsg {
                     })
                 }
 
-                fn obj_id(&self) -> u32 {
+                fn _obj_id(&self) -> u32 {
                     self.obj_id
                 }
 
-                fn is_destructor(&self) -> bool {
-                    #is_destructor
-                }
-
-                fn known_objects_created(&self) -> Option<Vec<(u32, crate::objects::WlObjectType)>> {
+                fn _known_objects_created(&self) -> Option<Vec<(u32, crate::objects::WlObjectType)>> {
                     #known_objects_created
                 }
 
-                fn to_json(&self) -> String {
+                fn _to_json(&self) -> String {
                     serde_json::to_string(self).unwrap()
-                }
-
-                fn num_consumed_fds(&self) -> usize {
-                    #num_consumed_fds
                 }
             }
 
-            unsafe impl<'a> crate::proto::AnyWlParsedMessage<'a> for #struct_name<'a> {}
+            unsafe impl<'a> crate::proto::DowncastableWlParsedMessage<'a> for #struct_name<'a> {
+                type Static = #struct_name<'static>;
+            }
 
             pub struct #parser_fn_name;
 

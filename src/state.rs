@@ -8,10 +8,9 @@ use crate::{
     objects::WlObjects,
     proto::{
         AnyWlParsedMessage, WaylandProtocolParsingOutcome, WlDisplayDeleteIdEvent,
-        WlKeyboardEnterEvent, WlParsedMessage, WlPointerEnterEvent, WlRegistryBindRequest,
-        WlRegistryGlobalEvent, WlRegistryGlobalRemoveEvent, WlTouchDownEvent,
-        XdgSurfaceGetToplevelRequest, XdgToplevelSetAppIdRequest, XdgToplevelSetTitleRequest,
-        XdgWmBaseGetXdgSurfaceRequest,
+        WlKeyboardEnterEvent, WlPointerEnterEvent, WlRegistryBindRequest, WlRegistryGlobalEvent,
+        WlRegistryGlobalRemoveEvent, WlTouchDownEvent, XdgSurfaceGetToplevelRequest,
+        XdgToplevelSetAppIdRequest, XdgToplevelSetTitleRequest, XdgWmBaseGetXdgSurfaceRequest,
     },
 };
 
@@ -133,7 +132,7 @@ impl WlMitmState {
                             is_half_destroyed = self.objects.is_half_destroyed(id),
                             "Trying to create object via message {}::{} but the object ID is already used!",
                             parent_obj.interface(),
-                            msg.self_msg_name()
+                            msg.msg_name()
                         );
 
                         return false;
@@ -145,7 +144,7 @@ impl WlMitmState {
                         obj_id = id,
                         "Created object via message {}::{}",
                         parent_obj.interface(),
-                        msg.self_msg_name()
+                        msg.msg_name()
                     );
                     self.objects.record_object(tt, id);
                 }
@@ -164,7 +163,7 @@ impl WlMitmState {
                 obj_id = msg.obj_id(),
                 "Object destructed via destructor {}::{}",
                 obj_type.interface(),
-                msg.self_msg_name()
+                msg.msg_name()
             );
 
             self.objects.remove_object(msg.obj_id(), from_client);
@@ -184,8 +183,8 @@ impl WlMitmState {
         desc: &str,
     ) -> tokio::process::Command {
         let mut cmd = tokio::process::Command::new(cmd_str);
-        cmd.arg(msg.self_object_type().interface());
-        cmd.arg(msg.self_msg_name());
+        cmd.arg(msg.object_type().interface());
+        cmd.arg(msg.msg_name());
         cmd.arg(desc);
         cmd.env("WL_MITM_MSG_JSON", msg.to_json());
 
@@ -250,8 +249,8 @@ impl WlMitmState {
                 num_fds = raw_msg.fds.len(),
                 num_consumed_fds = msg.num_consumed_fds(),
                 "{}::{}",
-                msg.self_object_type().interface(),
-                msg.self_msg_name(),
+                msg.object_type().interface(),
+                msg.msg_name(),
             )
         }
 
@@ -260,7 +259,7 @@ impl WlMitmState {
         if self.objects.is_half_destroyed(msg.obj_id()) {
             error!(
                 obj_id = msg.obj_id(),
-                opcode = msg.self_opcode(),
+                opcode = msg.opcode(),
                 "Client request detected on object already scheduled for destruction; aborting!"
             );
             return outcome.terminate();
@@ -334,11 +333,11 @@ impl WlMitmState {
             .config
             .filter
             .requests
-            .get(msg.self_object_type().interface())
+            .get(msg.object_type().interface())
         {
             if let Some(filtered) = filtered_requests
                 .iter()
-                .find(|f| f.requests.contains(msg.self_msg_name()))
+                .find(|f| f.requests.contains(msg.msg_name()))
             {
                 match filtered.action {
                     WlFilterRequestAction::Ask => {
@@ -346,8 +345,8 @@ impl WlMitmState {
                             info!(
                                 ask_cmd = ask_cmd,
                                 "Running ask command for {}::{}",
-                                msg.self_object_type().interface(),
-                                msg.self_msg_name()
+                                msg.object_type().interface(),
+                                msg.msg_name()
                             );
 
                             let mut cmd = self.prepare_command(
@@ -360,8 +359,8 @@ impl WlMitmState {
                                 if !status.success() {
                                     warn!(
                                         "Blocked {}::{} because of return status {}",
-                                        msg.self_object_type().interface(),
-                                        msg.self_msg_name(),
+                                        msg.object_type().interface(),
+                                        msg.msg_name(),
                                         status
                                     );
 
@@ -379,8 +378,8 @@ impl WlMitmState {
 
                         warn!(
                             "Blocked {}::{} because of missing ask_cmd",
-                            msg.self_object_type().interface(),
-                            msg.self_msg_name()
+                            msg.object_type().interface(),
+                            msg.msg_name()
                         );
                         return match filtered.block_type {
                             WlFilterRequestBlockType::Ignore => outcome.filtered(),
@@ -394,8 +393,8 @@ impl WlMitmState {
                             info!(
                                 notify_cmd = notify_cmd,
                                 "Running notify command for {}::{}",
-                                msg.self_object_type().interface(),
-                                msg.self_msg_name()
+                                msg.object_type().interface(),
+                                msg.msg_name()
                             );
 
                             let mut cmd = self.prepare_command(
@@ -410,8 +409,8 @@ impl WlMitmState {
                     WlFilterRequestAction::Block => {
                         warn!(
                             "Blocked {}::{}",
-                            msg.self_object_type().interface(),
-                            msg.self_msg_name()
+                            msg.object_type().interface(),
+                            msg.msg_name()
                         );
                         return match filtered.block_type {
                             WlFilterRequestBlockType::Ignore => outcome.filtered(),
@@ -458,8 +457,8 @@ impl WlMitmState {
                 num_fds = raw_msg.fds.len(),
                 num_consumed_fds = msg.num_consumed_fds(),
                 "{}::{}",
-                msg.self_object_type().interface(),
-                msg.self_msg_name(),
+                msg.object_type().interface(),
+                msg.msg_name(),
             )
         }
 
