@@ -247,7 +247,7 @@ impl WlMsg {
                     &self,
                     objects: &'obj crate::proto::WlObjects,
                     msg: &'msg crate::codec::WlRawMsg,
-                ) -> crate::proto::WaylandProtocolParsingOutcome<Box<dyn crate::proto::AnyWlParsedMessage<'msg> + 'msg>> {
+                ) -> crate::proto::WaylandProtocolParsingOutcome<Box<dyn crate::proto::AnyWlParsedMessage + 'msg>> {
                     #struct_name::try_from_msg(objects, msg).map(|r| Box::new(r) as Box<_>)
                 }
             }

@@ -117,7 +117,7 @@ impl WlMitmState {
     /// is not handled here.
     fn handle_created_or_destroyed_objects(
         &mut self,
-        msg: &dyn AnyWlParsedMessage<'_>,
+        msg: &dyn AnyWlParsedMessage,
         from_client: bool,
     ) -> bool {
         if let Some(created_objects) = msg.known_objects_created() {
@@ -178,7 +178,7 @@ impl WlMitmState {
 
     fn prepare_command(
         &self,
-        msg: &dyn AnyWlParsedMessage<'_>,
+        msg: &dyn AnyWlParsedMessage,
         cmd_str: &str,
         desc: &str,
     ) -> tokio::process::Command {

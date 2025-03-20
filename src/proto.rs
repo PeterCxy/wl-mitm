@@ -106,7 +106,7 @@ pub unsafe trait DowncastableWlParsedMessage<'a>: Send + WlParsedMessage<'a> {
 
 /// The implementation of dyn-available methods and downcasting for
 /// [DowncastableWlParsedMessage]
-pub trait AnyWlParsedMessage<'a>: Send {
+pub trait AnyWlParsedMessage: Send {
     fn static_type_id(&self) -> TypeId;
     fn opcode(&self) -> u16;
     fn object_type(&self) -> WlObjectType;
@@ -118,9 +118,9 @@ pub trait AnyWlParsedMessage<'a>: Send {
     fn num_consumed_fds(&self) -> usize;
 }
 
-impl<'a, T> AnyWlParsedMessage<'a> for T
+impl<'a, T> AnyWlParsedMessage for T
 where
-    T: DowncastableWlParsedMessage<'a>,
+    T: DowncastableWlParsedMessage<'a> + 'a,
 {
     fn static_type_id(&self) -> TypeId {
         TypeId::of::<T::Static>()
@@ -159,17 +159,17 @@ where
     }
 }
 
-impl<'out, 'data: 'out> dyn AnyWlParsedMessage<'data> + 'data {
+impl<'out, 'data: 'out> dyn AnyWlParsedMessage + 'data {
     /// Downcast the type-erased, borrowed Wayland message to a concrete type. Note that the
     /// safety of this relies on a few invariants:
     ///
     /// 1. 'data outlives 'out (guaranteed by the trait bound above)
-    /// 2. The type implementing [AnyWlParsedMessage] does not contain any lifetime other than
+    /// 2. The type implementing [DowncastableWlParsedMessage] does not contain any lifetime other than
     ///    'data (or 'a in the trait's definition).
     pub fn downcast_ref<
-        T: AnyWlParsedMessage<'data> + DowncastableWlParsedMessage<'data> + 'data,
+        T: AnyWlParsedMessage + DowncastableWlParsedMessage<'data> + 'data,
     >(
-        &'out self,
+        &'data self,
     ) -> Option<&'out T> {
         if self.static_type_id() != TypeId::of::<T::Static>() {
             return None;
@@ -177,7 +177,7 @@ impl<'out, 'data: 'out> dyn AnyWlParsedMessage<'data> + 'data {
 
         // SAFETY: We have verified the type IDs match up.
         //
-        // In addition, because [AnyWlParsedMessage]'s contract requires that no
+        // In addition, because [DowncastableWlParsedMessage]'s contract requires that no
         // lifetime other than 'a ('data) is contained in the implemetor, the
         // output type T cannot contain another lifetime that may be transmuted
         // by this unsafe block.
@@ -195,7 +195,7 @@ pub trait WlMsgParserFn: Send + Sync {
         &self,
         objects: &'obj WlObjects,
         msg: &'msg WlRawMsg,
-    ) -> WaylandProtocolParsingOutcome<Box<dyn AnyWlParsedMessage<'msg> + 'msg>>;
+    ) -> WaylandProtocolParsingOutcome<Box<dyn AnyWlParsedMessage + 'msg>>;
 }
 
 /// Messages that can be converted back to [WlRawMsg]
@@ -234,7 +234,7 @@ static WL_EVENT_REQUEST_PARSERS: LazyLock<(
 pub fn decode_event<'obj, 'msg>(
     objects: &'obj WlObjects,
     msg: &'msg WlRawMsg,
-) -> WaylandProtocolParsingOutcome<Box<dyn AnyWlParsedMessage<'msg> + 'msg>> {
+) -> WaylandProtocolParsingOutcome<Box<dyn AnyWlParsedMessage + 'msg>> {
     let Some(obj_type) = objects.lookup_object(msg.obj_id) else {
         return WaylandProtocolParsingOutcome::Unknown;
     };
@@ -254,7 +254,7 @@ pub fn decode_event<'obj, 'msg>(
 pub fn decode_request<'obj, 'msg>(
     objects: &'obj WlObjects,
     msg: &'msg WlRawMsg,
-) -> WaylandProtocolParsingOutcome<Box<dyn AnyWlParsedMessage<'msg> + 'msg>> {
+) -> WaylandProtocolParsingOutcome<Box<dyn AnyWlParsedMessage + 'msg>> {
     let Some(obj_type) = objects.lookup_object(msg.obj_id) else {
         return WaylandProtocolParsingOutcome::Unknown;
     };
