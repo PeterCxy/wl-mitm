@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+# This script wraps `flatpak` to run sandboxed programs with filtered
+# Wayland sockets by spawning each invocation with its own wl-mitm
+# and xwayland-satellite instances.
+#
+# It uses a sensible set of wl-mitm configuration included here in the
+# script, and a copy of `notify-libnotify.sh` to send notifications
+# when sensitive actions are performed inside the sandbox.
+#
+# This script requires `bwrap` (Bubblewrap), which flatpak also uses
+# so should be available on most systems where Flatpak is available.
+#
+# It also expects `wl-mitm` and `xwayland-satellite` to be available in
+# $PATH.
+
+TMPDIR="$(mktemp -d)"
+[ "$DEBUG" == "1" ] && echo "TMPDIR is $TMPDIR"
+
+mkdir "$TMPDIR/empty"
+
+SUBPIDS=()
+
+wait_until_exists() {
+  local counter=0
+  while [ ! -e "$1" ]; do
+    sleep 0.5
+    counter=$((counter + 1))
+    [ "$counter" -ge 10 ] && exit 1
+  done
+}
+
+cleanup() {
+  for p in "${SUBPIDS[@]}"; do
+    kill -KILL "$p" > /dev/null 2>&1
+  done
+  [ "$DEBUG" != "1" ] && rm -rf "$TMPDIR"
+}
+
+trap cleanup EXIT SIGTERM SIGINT SIGHUP
+
+cat > "$TMPDIR/notify-libnotify.sh" <<EOF
+#!/usr/bin/env bash
+
+msg="\$3"
+
+if [ -z "\$msg" ]; then
+  msg="called \$1::\$2"
+fi
+
+if [ ! -z "\$WL_MITM_LAST_TOPLEVEL_TITLE" ]; then
+  msg="\"\$WL_MITM_LAST_TOPLEVEL_TITLE\" \$msg"
+elif [ ! -z "\$WL_MITM_LAST_TOPLEVEL_APP_ID" ]; then
+  msg="\"\$WL_MITM_LAST_TOPLEVEL_APP_ID\" \$msg"
+fi
+
+notify-send "\$msg"
+EOF
+
+chmod +x "$TMPDIR/notify-libnotify.sh"
+
+WL_MITM_CONFIG="$(cat <<EOF
+[socket]
+listen = "$XDG_RUNTIME_DIR/wayland-1000"
+
+[exec]
+notify_cmd = "$TMPDIR/notify-libnotify.sh"
+
+[filter]
+allowed_globals = [
+    "wl_compositor",
+    "wl_subcompositor",
+    "wl_shm",
+    "wl_data_device_manager",
+    "wl_output",
+    "wl_seat",
+    "xdg_wm_base",
+    "zxdg_decoration_manager_v1",
+    "wp_presentation",
+    "wp_viewporter",
+    "zwp_linux_dmabuf_v1",
+    "wl_drm",
+    "wp_drm_lease_device_v1",
+    "wp_linux_drm_syncobj_manager_v1",
+    "zxdg_output_manager_v1",
+    "zwp_pointer_constraints_v1",
+    "zwp_xwayland_keyboard_grab_manager_v1",
+    "zwp_relative_pointer_manager_v1",
+]
+
+[[filter.requests]]
+interface = "wl_data_offer"
+requests = [ "receive" ]
+action = "notify"
+desc = "pasted from clipboard or accepted drag and drop"
+
+[[filter.requests]]
+interface = "zwp_pointer_constraints_v1"
+requests = [ "lock_pointer", "confine_pointer" ]
+action = "notify"
+desc = "captured mouse pointer"
+
+[[filter.requests]]
+interface = "zwp_xwayland_keyboard_grab_manager_v1"
+requests = [ "grab_keyboard" ]
+action = "notify"
+desc = "grabbed keyboard"
+EOF
+)"
+
+mkdir "$TMPDIR/xdg_runtime"
+
+(
+  # Mostly don't bind anything from XDG_RUNTIME but do give it access to dbus in order to send notifications
+  bwrap --bind / / --bind "$TMPDIR/xdg_runtime" "$XDG_RUNTIME_DIR" --bind "$XDG_RUNTIME_DIR/bus" "$XDG_RUNTIME_DIR/bus" --bind "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" --setenv WL_MITM_CONFIG "$WL_MITM_CONFIG" --unshare-pid --die-with-parent -- bash <<EOF
+    echo "\$WL_MITM_CONFIG" > "\$XDG_RUNTIME_DIR/wl-mitm.toml"
+    exec wl-mitm "\$XDG_RUNTIME_DIR/wl-mitm.toml"
+EOF
+) > "$TMPDIR/wl-mitm.log" 2>&1 &
+
+SUBPIDS+=($!)
+
+wait_until_exists "$TMPDIR/xdg_runtime/wayland-1000"
+
+mkdir "$TMPDIR/.X11-unix"
+
+(
+  bwrap --bind / / --dev-bind /dev /dev --bind "$TMPDIR/xdg_runtime/wayland-1000" "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" --tmpfs /tmp --bind "$TMPDIR/.X11-unix" /tmp/.X11-unix --unshare-pid --unshare-ipc --die-with-parent -- bash <<EOF
+  exec xwayland-satellite :0
+EOF
+) > "$TMPDIR/xwayland-satellite.log" 2>&1 &
+
+SUBPIDS+=($!)
+
+wait_until_exists "$TMPDIR/.X11-unix/X0"
+
+(
+  # Only give it access to the filtered Wayland display, not the original
+  # Note that we overrode /tmp in order to bind .X11-unix, but we do need to still add back
+  # $TMPDIR since we need to pass the pid back
+  # TODO: Maybe we want to bind /dev/null to any other Wayland displays too here?
+  bwrap --bind / / --dev-bind /dev /dev --tmpfs /tmp --bind "$TMPDIR" "$TMPDIR" --bind "$TMPDIR/xdg_runtime/wayland-1000" "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" --bind "$TMPDIR/.X11-unix/X0" /tmp/.X11-unix/X0 --bind "$TMPDIR/empty" "$TMPDIR/xdg_runtime" --unshare-ipc --setenv DISPLAY ":0" -- bash /dev/stdin "$@" <<EOF
+  echo \$\$ > "$TMPDIR/flatpak.pid"
+  exec flatpak "\$@"
+EOF
+) &
+
+foreground_pid=$!
+SUBPIDS+=($foreground_pid)
+
+wait_until_exists "$TMPDIR/flatpak.pid"
+
+SUBPIDS+=("$(cat $TMPDIR/flatpak.pid)")
+
+wait $foreground_pid
+
