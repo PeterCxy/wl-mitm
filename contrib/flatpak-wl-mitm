@@ -38,6 +38,11 @@ cleanup() {
 
 trap cleanup EXIT SIGTERM SIGINT SIGHUP
 
+if [ "$1" != "run" ]; then
+  # Passthrough directly since we don't need to handle non-run flatpak commands
+  exec flatpak "$@"
+fi
+
 cat > "$TMPDIR/notify-libnotify.sh" <<EOF
 #!/usr/bin/env bash
 
