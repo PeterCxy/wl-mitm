@@ -17,6 +17,14 @@ SCRIPTPATH="$(realpath "$0")"
 TMPDIR="$(mktemp -d)"
 [ "$DEBUG" == "1" ] && echo "TMPDIR is $TMPDIR"
 
+
+if ! which wl-mitm > /dev/null 2>&1; then
+  # In case wl-mitm is installed in ~/.local/bin or ~/.cargo/bin but not in PATH
+  # This is possible if the path is added in bashrc but not available
+  # from, for example, desktop launchers
+  export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+fi
+
 mkdir "$TMPDIR/empty"
 
 SUBPIDS=()
