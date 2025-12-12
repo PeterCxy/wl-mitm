@@ -175,20 +175,20 @@ mkdir "$TMPDIR/.X11-unix"
 
 (
   bwrap --bind / / --dev-bind /dev /dev --bind "$TMPDIR/xdg_runtime/wayland-1000" "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" --tmpfs /tmp --bind "$TMPDIR/.X11-unix" /tmp/.X11-unix --unshare-pid --unshare-ipc --unshare-net --die-with-parent -- bash <<EOF
-  exec xwayland-satellite :0
+  exec xwayland-satellite :1000
 EOF
 ) > "$TMPDIR/xwayland-satellite.log" 2>&1 &
 
 SUBPIDS+=($!)
 
-wait_until_exists "$TMPDIR/.X11-unix/X0"
+wait_until_exists "$TMPDIR/.X11-unix/X1000"
 
 (
   # Only give it access to the filtered Wayland display, not the original
   # Note that we overrode /tmp in order to bind .X11-unix, but we do need to still add back
   # $TMPDIR since we need to pass the pid back
   # TODO: Maybe we want to bind /dev/null to any other Wayland displays too here?
-  bwrap --bind / / --dev-bind /dev /dev --tmpfs /tmp --bind "$TMPDIR" "$TMPDIR" --bind "$TMPDIR/xdg_runtime/wayland-1000" "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" --bind "$TMPDIR/.X11-unix/X0" /tmp/.X11-unix/X0 --bind "$TMPDIR/empty" "$TMPDIR/xdg_runtime" --unshare-ipc --setenv DISPLAY ":0" -- bash /dev/stdin "$@" <<EOF
+  bwrap --bind / / --dev-bind /dev /dev --tmpfs /tmp --bind "$TMPDIR" "$TMPDIR" --bind "$TMPDIR/xdg_runtime/wayland-1000" "$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY" --bind "$TMPDIR/.X11-unix/X1000" /tmp/.X11-unix/X1000 --bind "$TMPDIR/empty" "$TMPDIR/xdg_runtime" --unshare-ipc --setenv DISPLAY ":1000" -- bash /dev/stdin "$@" <<EOF
   echo \$\$ > "$TMPDIR/flatpak.pid"
   exec flatpak "\$@"
 EOF
